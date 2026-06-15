@@ -6,6 +6,21 @@ this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-15
+
+Phase 4 — Mobile-native PWA (`apps/mobile`): full agent orchestration from the phone (P12), on `@swarm/ui` + the **real** host. **Green on Windows + macOS + Linux** — CI run 27567194903: the `verify` matrix (lint/typecheck/build/test) on all three OSes **plus** a new real-host Playwright **`e2e (mobile)`** job (pairing, read journeys, touch terminal, dispatch, offline SW + push opt-in at a phone viewport) alongside the desktop e2e. Independent Phase-4 Critic **ALL-PASS** incl. the §6.3 anti-slop design bar; axe-core a11y **0 critical/serious**; phone speed budgets recorded (`evidence/phase-4/`).
+
+### Added
+- **Mobile PWA skeleton (W1).** `apps/mobile` is a Vite + React + Tailwind PWA on `@swarm/ui`: a web app manifest + an icon set (192/512 + maskable + apple-touch, rendered from the Grove mark), a safe-area shell, a new accessible **`BottomNav`** primitive in `@swarm/ui`, and Workspaces/Agents/Terminal/Diff/Settings tabs.
+- **Host-served PWA + QR pairing (W2, P12).** The host serves the PWA at `/` (liveness → `/healthz`). `grove pair [--lan]` prints a terminal **QR** with the endpoint + a short-lived **single-use** code (`timingSafeEqual`, 5-strike lockout, 2-min TTL); the **public** `pair.redeem` hands back the bearer — stored in **IndexedDB**, never in the QR/URL/SW-cache — and the PWA goes live over tRPC + `/sync`. LAN bind is an explicit `--lan` opt-in (private-by-default preserved — P11).
+- **Phone read journeys (W3).** Live workspace list + **detail** (branch + ahead/behind via a new host `workspaces.gitStatus`, live agents, session history, make-active), a cross-workspace **Agents** roll-up, and **read-only diff review** (`@swarm/ui` `DiffView`).
+- **Touch terminal + dispatch (W4).** xterm over the `/terminal` WS at a phone viewport with a **touch accessory bar** that synthesizes real PTY control bytes (sticky `Ctrl` chord via `& 0x1f`, Esc/Tab/arrows/CLI symbols); **dispatch / quick-create** a real agent via `agents.start` (the mock adapter stays test/flag-gated — never on the user path).
+- **Offline service worker + Web Push/VAPID (W5).** A `vite-plugin-pwa` injectManifest **service worker**: precache the **app-shell only**, network-first / never-cache for `/trpc`·`/sync`·`/terminal`·`/healthz`·`pair`·any bearer request (the token + tRPC responses are never cached); offline app-shell fallback. A host **`notifications`** router (`list`/`markRead`/`subscribePush`) + a persisted **VAPID** keypair + a `web-push` send on `workspace.status → needs_attention`; PWA push opt-in (permission gesture → subscribe) + an inbox. (On-device push lights up at the Phase-5 secure origin per ADR-0014.)
+- **Mobile e2e CI job + Phase-4 evidence (W6).** A new `e2e (mobile, ubuntu-latest)` CI job runs the 11-spec phone-viewport Playwright suite against a real seeded host that serves the built PWA. `evidence/phase-4/`: 8 phone screenshots, `perf-report.md` (cold-start, interaction, terminal-stream budgets — all **PASS**), `a11y-report.md` (axe-core, **0 critical/serious** post-fix), and the independent Critic `review.md` (**ALL-PASS**).
+
+### Fixed
+- **Mobile accessibility (Phase-4 gate, caught by the independent Critic's evidence).** Sheet/panel section `<h3>` labels (`WorkspaceDetailSheet`, `SettingsPanel`, the Notifications "Inbox") raised `text-fg-subtle` → the AA-passing `text-fg-muted` on raised/overlay surfaces; the Dispatch button enlarged to a ≥44px touch target (`min-h-11`). Re-audit: 0 critical / 0 serious.
+
 ## [0.4.0] - 2026-06-15
 
 Phase 3 — Desktop client (Electron shell + React renderer on `@swarm/ui`, wired to the **real** host engine): built-in terminal (P05), diff viewer + inline editor (P06), open-in-external (P08), workspace navigation + customizable shortcuts/settings (P09). **Green on Windows + macOS + Linux** — CI run 27550630185: the `verify` matrix (lint/typecheck/build/test) on all three OSes **plus** a new real-host Playwright `e2e` job. Independent Phase-3 Critic **ALL-PASS** incl. the §6.3 anti-slop design bar; axe-core a11y **0 critical/serious**; speed budgets recorded (`evidence/phase-3/`).
@@ -70,7 +85,8 @@ Phase 0 — Recon & Architecture. Skeleton compiles; CI green on Windows + macOS
 - Monorepo skeleton (Bun workspaces + Turborepo): 11 `@swarm/*` packages (`shared`, `db`, `core-engine`, `agent-adapters`, `git-worktree`, `pty-supervisor`, `config`, `sync`, `api`, `terminal`, `ui`) and 5 apps (`host`, `cli`, `desktop`, `mobile`, `docs`), each with real typed contracts and a genuine inter-package type graph. Biome + strict `tsc` + `bun test`.
 - CI: `.github/workflows/ci.yml` matrix over `windows-latest` + `macos-latest` + `ubuntu-latest` (install → lint → typecheck → build → test). Green: run 27519073829.
 
-[Unreleased]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.1.0...v0.2.0

@@ -15,18 +15,18 @@
     }
   },
   "host_os": "windows",
-  "current_phase": 4,
+  "current_phase": 5,
   "phase_status": {
     "0_recon_architecture": "done (v0.1.0; CI run 27519073829; Critic 11/0 PASS)",
     "1_brand_design": "done (v0.2.0; CI run 27520745796; Critic 5/5 PASS; screenshots evidence/phase-1)",
     "2_host_engine": "done (v0.3.0; CI run 27536255083 GREEN 3 OSes; Critic review-3 PASS; P01/P02/P03/P04/P07/P10/P11 proven incl Windows; no quarantines)",
     "3_desktop_client": "done (v0.4.0; CI run 27550630185 GREEN 3 OSes [verify matrix] + e2e (desktop) job; independent Critic ALL-PASS incl §6.3; axe a11y 0 critical/serious; perf budgets recorded; P05/P06/P08/P09 = Done. Billing unblocked by making repo public — ADR-0012.)",
-    "4_mobile_client": "in_progress",
-    "5_platform_setup": "not_started",
+    "4_mobile_client": "done (v0.5.0; CI run 27567194903 GREEN 3 OSes [verify] + e2e (desktop) + e2e (mobile); independent Phase-4 Critic ALL-PASS incl §6.3; axe a11y 0 critical/serious; phone perf budgets PASS; P12 done. PWA pairing [QR single-use code -> bearer in IndexedDB], read journeys, touch terminal+dispatch, offline SW + Web Push/VAPID. On-device push lights up at the Phase-5 secure origin.)",
+    "5_platform_setup": "in_progress",
     "6_hardening_launch": "not_started"
   },
-  "version": "0.4.0",
-  "next_release_target": "0.5.0",
+  "version": "0.5.0",
+  "next_release_target": "0.6.0",
   "toolchain": {
     "git": "2.53.0", "gh": "2.89.0 (authed: GhostlyGawd)", "node": "24.14.1",
     "npm": "11.11.0", "bun": "installed", "pnpm": "installed",
@@ -49,7 +49,7 @@
     "tunnel": "cloudflared / localtunnel (OSS) — Phase 5"
   },
   "next_actions": [
-    "[ACTIVE — Phase 4] Mobile-native PWA (apps/mobile): installable (manifest + service worker, offline-first), Web Push/VAPID, touch gestures, safe-area insets, 60fps; FULL agent-orchestration control from the phone (workspace list/switch, live agent status, terminal view, diff review, dispatch) on @swarm/ui + the REAL host (the host already serves permissive CORS on /trpc for browser clients). Playwright e2e at phone viewport vs real host; independent Phase-4 Critic incl §6.3 + phone screenshots -> v0.5.0. (Desktop shell intentionally does not reflow below ~16rem; the phone experience is THIS phase's job.)",
+    "[ACTIVE — Phase 5] Platform & self/remote setup (P13) -> v0.6.0: (a) one-command cross-platform bootstrap (Win/mac/Linux; install deps, init host, write manifest, start daemon) authored in TS (no .sh on user paths, ADR-0004); (b) desktop installers via electron-builder — NSIS (Windows) / dmg+zip (macOS) / AppImage+deb (Linux); CI builds/typechecks the packaging config (ELECTRON_SKIP_BINARY_DOWNLOAD; actual GUI launch + installer smoke verified locally, not in CI); (c) the phone-only REMOTE path: cloudflared/localtunnel + Caddy internal TLS so the PWA reaches the host over HTTPS from anywhere -> on-device SW install + Web Push light up (closes the ADR-0014 dec-4 deferral); (d) QR pairing over the tunnel URL. Independent Phase-5 Critic + evidence (installer artifacts, a remote-pairing trace) -> v0.6.0 + Linear P13 Done.",
     "[Phase 6 / launch sign-off] license-audit report (whole-product, ADR-0008) + CROSS-PLATFORM perf re-measure (the Phase-3 desktop perf-report.md terminal-stream p95 tail is interactive-Windows-PowerShell variance; transport floor is within budget — re-measure on Linux/macOS CI) + comprehensive a11y sweep, under evidence/; required before v1.0.0",
     "[harness retro follow-up] route the CI-gate lessons (turbo-cache false-green -> --force; GH-windows ConPTY discipline -> direct PTY spawn+onExit / process.execPath / child_process for batch / worker process.exit / bounded fs.rm; fresh independent Critics catch fakes) into recursive-harness artifacts via /harness-pr"
   ],
