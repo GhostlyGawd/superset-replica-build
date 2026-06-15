@@ -97,6 +97,11 @@ interface RunResult {
  * Run a raw shell command line to completion on a PTY, streaming its output and
  * resolving with the exit code derived from the appended exit sentinel (the shell
  * is what we spawn, so the code surfaces in the stream, not a process event).
+ *
+ * The command (env assignments + the user line + exit-sentinel echo) is run
+ * NON-INTERACTIVELY as the shell's own `-Command`/`-c`/`/c` argument — never typed
+ * into an interactive prompt — so a long line never hits the Windows PSReadLine
+ * line editor (the GH-runner re-render/word-wrap corruption that stalls launches).
  */
 function runShellLine(
   supervisor: PtyHost,
@@ -117,6 +122,7 @@ function runShellLine(
       cwd: opts.cwd,
       cols: 120,
       rows: 30,
+      command: buildExitLine(opts.shell, opts.line, opts.env),
     });
     let carry = "";
     let captured = "";
@@ -144,7 +150,8 @@ function runShellLine(
         finish(signals.exitCode ?? 0);
       }
     });
-    supervisor.write(session.ptyId, `${buildExitLine(opts.shell, opts.line, opts.env)}\r`);
+    // The command runs as the shell's own argument (spawn `command` above); no
+    // interactive write, so the Windows line editor never mangles a long line.
   });
 }
 

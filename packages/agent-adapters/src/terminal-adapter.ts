@@ -16,11 +16,16 @@ import {
  * infer an `AgentStatus` from output activity + exit code. Zero config — a
  * command + args is enough; named presets just supply tuned `StatusDetection`.
  *
- * The supervisor spawns a *shell* and we drive the agent by writing a command
- * line into it (the same shape `pty-worker` uses), so this module only needs the
- * supervisor's TYPE — node-pty is never imported here and the bundle stays clean.
- * The supervisor itself runs under Node (ADR-0007a), so any caller wiring a real
- * PTY (tests, the host) must do so from a Node process, not Bun.
+ * The supervisor spawns the *shell* NON-INTERACTIVELY with the composed launch
+ * line as its `-Command`/`-c`/`/c` argument (so a PTY is still allocated for TUI
+ * agents, but the command is run as the shell's own process — never *typed* into
+ * an interactive prompt). On Windows this is what makes launches robust: a long,
+ * absolute-path command never reaches the PSReadLine line editor, so it cannot be
+ * re-rendered/word-wrapped into a corrupted, never-executed input (the GH
+ * `windows-latest` failure mode). This module only needs the supervisor's TYPE —
+ * node-pty is never imported here and the bundle stays clean. The supervisor runs
+ * under Node (ADR-0007a), so any caller wiring a real PTY (tests, the host) must
+ * do so from a Node process, not Bun.
  */
 
 /** Minimal structural view of the supervisor methods this adapter uses. */
@@ -132,16 +137,25 @@ const CARRY = 96;
  * immediately with a handle; status flows through `onStatus`. The status starts
  * at `running` (the act of launching is activity) and ends at `done`/`error`
  * once the exit sentinel is seen; quiet stretches flip it to `needs_attention`.
+ *
+ * The composed launch line (env assignments + quoted command + exit-sentinel echo)
+ * is handed to the supervisor as a NON-INTERACTIVE shell invocation — the shell
+ * runs it as its own process inside the PTY and exits. Nothing is typed into an
+ * interactive prompt, so on Windows the PSReadLine line editor never re-renders or
+ * word-wraps the (often long, absolute-path) command line; the command always runs
+ * exactly as composed. A PTY is still allocated, so TUI agents keep their terminal.
  */
 export function launchTerminalAdapter(options: TerminalLaunchOptions): TerminalHandle {
   const detection = options.detection ?? DEFAULT_DETECTION;
   const shell = options.shell ?? defaultShell();
+  const launchLine = buildLaunchLine(shell, options.command, options.args ?? [], options.env ?? {});
   const spawnOptions: PtySpawnOptions = {
     workspaceId: options.workspaceId,
     shell,
     cwd: options.cwd,
     cols: options.cols ?? 120,
     rows: options.rows ?? 30,
+    command: launchLine,
   };
   const session = options.supervisor.spawn(spawnOptions);
 
@@ -193,10 +207,8 @@ export function launchTerminalAdapter(options: TerminalLaunchOptions): TerminalH
   });
 
   options.onStatus?.(status);
-  options.supervisor.write(
-    session.ptyId,
-    `${buildLaunchLine(shell, options.command, options.args ?? [], options.env ?? {})}\r`,
-  );
+  // No write: the launch line is the shell's own `-Command`/`-c`/`/c` argument
+  // (see spawnOptions.command above), not keyboard input into an interactive prompt.
   armIdle();
 
   return {

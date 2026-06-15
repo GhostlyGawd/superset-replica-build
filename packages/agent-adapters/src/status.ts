@@ -16,10 +16,11 @@ export type AgentStatus = Extract<
 /**
  * Marker the terminal adapter appends to the launched command line so the exit
  * code surfaces in the PTY stream (the supervisor spawns a shell, not the agent
- * process directly, so there is no process-exit event to listen on). The shell
- * echoes the *unexpanded* form (`:$LASTEXITCODE` / `:%ERRORLEVEL%` / `:$?`) when
- * it echoes the input line; only the *executed* form carries digits, so the
- * exit regex (which requires digits) never matches the input echo.
+ * process directly, so there is no process-exit event to listen on). The launch
+ * line is run non-interactively (it is the shell's own argument, never typed at a
+ * prompt), so it is not echoed back. The exit regex still requires digits — so
+ * only the *executed* form (`:0`, `:1`, …), never an unexpanded literal
+ * (`:$LASTEXITCODE` / `:%ERRORLEVEL%` / `:$?`), is ever treated as a real exit.
  */
 export const EXIT_SENTINEL = "__SWARM_EXIT__";
 const EXIT_RE = /__SWARM_EXIT__:(-?\d+)/;

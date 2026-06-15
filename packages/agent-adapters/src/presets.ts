@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
 import { type AdapterDescriptor, type AdapterId, BUILTIN_ADAPTERS } from "./descriptors.ts";
 import { DEFAULT_DETECTION, type StatusDetection } from "./status.ts";
@@ -85,25 +87,46 @@ export interface AdapterAvailability {
   readonly detail: string;
 }
 
+/** Drive (`C:\`), POSIX root (`/`), or UNC (`\\server`) — accepts any extension. */
+function looksAbsolute(line: string): boolean {
+  return /^([a-zA-Z]:[\\/]|[\\/]|\\\\)/.test(line);
+}
+
 /**
- * Resolve a command on PATH, returning the first concrete path or `undefined`.
+ * Resolve a command to a concrete executable path, or `undefined` if not found.
+ * Never throws — graceful degradation is the contract (the caller maps `undefined`
+ * to `not_found`).
  *
- * On Windows we invoke `where.exe` explicitly (a bare `where` is not reliably
- * resolved by `execFile`, which does not consult `PATHEXT`); it prints one match
- * per line — `name.exe`/`name.cmd`/`name.bat` — and exits non-zero when nothing
- * matches (rejecting the promise). On POSIX `which` behaves the same with a single
- * line. We take the first line that looks like an absolute path so a stray
- * `INFO:`/warning line from `where.exe` is never mistaken for a hit.
+ * 1. If `command` is already an absolute path that exists on disk, return it
+ *    verbatim (a user may configure a full path to a CLI). This also makes
+ *    detection independent of `where.exe`/`which` and PATH, which can be unreliable
+ *    under the Bun test runtime on the GH `windows-latest` runner.
+ * 2. Otherwise look it up: `where.exe` on Windows (a bare `where` is not reliably
+ *    resolved by `execFile`, which ignores `PATHEXT`), `which` on POSIX. Both print
+ *    one match per line and exit non-zero when nothing matches. We trim CR, take the
+ *    first absolute-looking line (so a stray `INFO:`/warning line is never mistaken
+ *    for a hit), and prefer one that exists on disk. A non-zero exit with no usable
+ *    path yields `undefined` (⇒ not found). Any `.exe`/`.cmd`/`.bat` shim qualifies.
  */
 async function resolveOnPath(command: string): Promise<string | undefined> {
+  const trimmed = command.trim();
+  if (isAbsolute(trimmed) && existsSync(trimmed)) {
+    return trimmed;
+  }
   const finder = process.platform === "win32" ? "where.exe" : "which";
-  const { stdout } = await execFileAsync(finder, [command]);
-  const looksAbsolute = (line: string): boolean => /^([a-zA-Z]:[\\/]|[\\/]|\\\\)/.test(line); // drive (C:\), POSIX root (/), or UNC (\\)
+  let stdout = "";
+  try {
+    stdout = (await execFileAsync(finder, [trimmed])).stdout ?? "";
+  } catch (error) {
+    // Nothing matched (non-zero exit) — or a spawn hiccup: parse whatever was
+    // captured before giving up, so a real hit that still printed its path is honored.
+    stdout = (error as { stdout?: string }).stdout ?? "";
+  }
   const lines = stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  return lines.find(looksAbsolute) ?? lines[0];
+  return lines.find((line) => looksAbsolute(line) && existsSync(line)) ?? lines.find(looksAbsolute);
 }
 
 /**

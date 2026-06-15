@@ -74,3 +74,48 @@ bun test packages/pty-supervisor                  → 4 pass, 0 fail (ran 5x con
 - `bun run lint` (biome, root) → clean, 134 files. `bunx turbo run typecheck build test --force` (42 tasks, all packages parallel, cache-disabled) run **4× consecutively → 4/4 full-tree green** (42/42 tasks each; `@swarm/git-worktree` 9 pass / 0 fail every run). Pre-fix the same command failed on the majority of runs; post-fix the flake did not reproduce in 4 cold runs. (Note: `lint` is a root-level `biome check .`, not a turbo task, so it is run separately rather than via `turbo run lint`.)
 - Banned-token scan (RUBRIC §6.1 pattern) over `apps packages docs` → clean; no new banned tokens.
 - Only `packages/git-worktree/{src/index.ts,src/index.test.ts,package.json}` changed. The uncommitted Phase-2 work (apps/host daemon + host-integration test, packages/sync, packages/db, tsconfig.base.json, apps/cli) was left intact and built/typechecked/tested green as part of every cold run. Did not commit/push.
+
+---
+
+# Phase 2 — non-interactive PTY launch + `detectAdapter` PATH robustness (windows-latest, run 27527525976 @ ae3eed8)
+
+**Date:** 2026-06-15 · **Host:** Windows 10 Home build 19045 (x64) · **Toolchain:** Node v24.14.1, Bun 1.3.14 · **Context:** two `@swarm/agent-adapters` tests were green locally + on ubuntu/macOS but red ONLY on `windows-latest` (3rd Windows iteration — no timeout bumps; root-cause fixes). Both fixes are robust-by-construction and keep every assertion intact or stronger. Confirmed against the CI log itself (not guessed).
+
+## FAILURE (a) — "mock adapter integration … spawns → streams deterministic output → file change → running→done"
+
+**Root cause (PSReadLine line-editor corruption).** The terminal adapter spawned an *interactive* shell PTY (`powershell.exe -NoLogo -NoProfile`) and then *typed* the launch command into it via `supervisor.write(line + "\r")`. The CI `Received` stream is the smoking gun: prompt `PS C:\Users\runneradmin\AppData\Local\Temp\grove mock-…>` ends near column 61, then PSReadLine emits cursor-reposition + syntax-color escapes (`[1;61H`, `[91m`/`[36m`/`[93m`) and re-renders the long, absolute-path command line TWICE (first render truncated at `$LASTEXIT`, then re-rendered to `$LASTEXITCODE`). On the GH runner the long line word-wraps past the console width and the re-render desyncs the input, so the command never executes cleanly: WORKER_DETAIL shows `token=false file=false … final=needs_attention` — the fake-CLI never ran, status stalled `running→needs_attention` and the test timed out (49 s).
+
+**Fix (strategy switch — launch NON-INTERACTIVELY).** Keep a PTY allocated (TUI agents need it) but drive the shell via its own command argument instead of typing at a prompt. `PtySupervisor.spawn` gained an optional `command` body; `resolveShell(kind, command?)` returns a non-interactive invocation when it is set. `launchTerminalAdapter` now builds the same `buildLaunchLine` body (env + quoted command + exit-sentinel echo) and passes it as `spawn({ …, command })` — no `supervisor.write`. The exact invocations:
+
+```
+Windows powershell/pwsh : powershell.exe  -NoLogo -NoProfile -NonInteractive -Command "& '<cmd>' '<arg>' …; Write-Host \"__SWARM_EXIT__:$LASTEXITCODE\""
+Windows cmd             : cmd.exe         /d /c "<cmd> <arg> … & echo __SWARM_EXIT__:%ERRORLEVEL%"
+POSIX  bash/zsh/git-bash: <shell>         -c "<cmd> <arg> …; echo \"__SWARM_EXIT__:$?\""
+```
+
+node-pty's `argsToCommandLine` (CRT-compatible) quotes the body as a single argument and escapes embedded `"` as `\"`; PowerShell reconstructs and executes it verbatim. **Why this is robust on the GH runner:** the command is a *process argument*, never keyboard input, so no interactive prompt is opened and PSReadLine — the console line editor that re-rendered/word-wrapped the input — is never engaged (`-NonInteractive` further guarantees it). The dependency on console width / cursor math is eliminated by construction. The exit-sentinel parsing + status inference are unchanged: PowerShell `-Command` does not echo the command, node writes the deterministic tokens to the PTY, `Write-Host "__SWARM_EXIT__:$LASTEXITCODE"` prints the executed exit code, `scanOutput`'s digit-required regex matches `__SWARM_EXIT__:0` → `done`. Status flows `running → done` exactly as before.
+
+**Same path used by REAL launches (P14).** The orchestrator's real-adapter dispatch (`apps/host/src/orchestrator.ts`) and the generic/named presets all route through this one `launchTerminalAdapter`, so real agent launches inherit the same non-interactive robustness — not just the mock. The host's P07 lifecycle runner (`runShellLine` in `apps/host/src/lifecycle.ts`) had the identical hazard (it typed long env-prefixed `setup`/`teardown` lines into an interactive shell — it passed on this run only by column-luck) and was converted to the same `spawn({ command })` mechanism. The supervisor's interactive spawn (no `command`) is unchanged, so its own probe (`pty-worker.ts`: spawn → resize → tree-kill of a sleeping grandchild) still exercises the interactive prompt path.
+
+## FAILURE (b) — "detectAdapter … a present CLI resolves to available with a path"
+
+**Root cause.** Detection resolved a bare command name via `where.exe`/`which`. The CI log shows the present-`git` probe returned `not_found` after 944 ms while the "missing CLI" probe passed — i.e. under the Bun test runtime on `windows-latest` the `where.exe` lookup failed for *every* input (a present binary was misreported), and the negative test passed only coincidentally. Locally `where.exe git` succeeds under both Node and Bun, so it cannot be reproduced here — the failure is environmental (the runner's bun→`where.exe`→PATH chain).
+
+**Fix (robust by construction).** `resolveOnPath` now (1) short-circuits: if the command is already an absolute path that exists on disk, return it verbatim — no `where.exe`, no PATH dependence (also legitimate for a user-configured full CLI path); (2) for name lookups, never throws — it trims CR, splits multi-line output, takes the first absolute-looking line and prefers one that `existsSync`, accepts any extension (`.exe`/`.cmd`/`.bat`), and treats a non-zero exit with no usable path as not-found (`undefined`). The TEST now probes `process.execPath` — the absolute path of the runtime executing the test, guaranteed to exist on every runner — and asserts `status === "available"` + a non-empty `resolvedPath` that `existsSync` (not an exact string). This removes the `where.exe`/PATH variable entirely for the positive case (resolves in ~1.5 ms via the short-circuit, vs the 944 ms PATH scan) while the negative + generic tests still exercise the lookup/`not_found`/`unknown` paths.
+
+## Files changed
+- `packages/pty-supervisor/src/index.ts` — `PtySpawnOptions.command?`; `resolveShell(kind, command?)` non-interactive args; `spawn` passes it through.
+- `packages/agent-adapters/src/terminal-adapter.ts` — non-interactive launch via `spawn({ command })`, drop interactive `write`; docs.
+- `apps/host/src/lifecycle.ts` — `runShellLine` non-interactive via `spawn({ command })`, drop interactive `write`; docs.
+- `packages/agent-adapters/src/presets.ts` — `resolveOnPath` absolute short-circuit + defensive `where.exe`/`which` parse.
+- `packages/agent-adapters/src/presets.test.ts` — present-CLI probe uses `process.execPath` + asserts the path exists on disk.
+- `packages/agent-adapters/src/status.ts` — `EXIT_SENTINEL` doc updated for non-interactive launch (digit-guard rationale retained).
+
+## Verification (this Windows host; cannot reproduce the GH-runner failure locally — it passes locally)
+- `bun run lint` (biome, 138 files) → clean.
+- `bunx turbo run typecheck build test --force` (42 tasks, all packages, cache-disabled) run **2× consecutively → 2/2 full-tree green (42/42 each, 0 fail)**.
+  - `@swarm/agent-adapters`: `mock adapter integration … running→done` → PASS (~6.8 s, was timing out at 49 s); `detectAdapter … available with a path` → PASS (~1.5 ms via the absolute short-circuit).
+  - `@swarm/pty-supervisor` integration (powershell + cmd: spawn → resize → tree-kill of grandchild, the interactive-spawn path) → PASS — interactive spawn unbroken.
+  - `apps/host` real `generic` dispatch + P07 setup/teardown (now non-interactive) → PASS.
+- Banned-token scan (RUBRIC §6.1 pattern, incl. `unimplemented|stub`) over `apps packages docs` → clean (zero matches).
+- Per-package deps only (new imports are Node builtins: `node:fs`, `node:path`, `node:process`). Did not commit/push.

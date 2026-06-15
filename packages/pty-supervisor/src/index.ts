@@ -31,6 +31,17 @@ export interface PtySpawnOptions {
   readonly cwd: string;
   readonly cols: number;
   readonly rows: number;
+  /**
+   * When set, spawn the shell NON-INTERACTIVELY to run this command body and exit
+   * (`powershell -NonInteractive -Command <body>` / `cmd /c <body>` / `sh -c <body>`),
+   * allocating a PTY for the command's own process. The body is delivered as a
+   * single process argument, so on Windows no interactive prompt is opened and the
+   * console line editor (PSReadLine) never re-renders or word-wraps a long launch
+   * line — the GH `windows-latest` corruption that stalled agent launches. When
+   * omitted, an interactive shell PTY is spawned (the supervisor probe + any caller
+   * that drives the prompt by writing keystrokes).
+   */
+  readonly command?: string;
 }
 
 export interface PtySession {
@@ -46,24 +57,46 @@ interface ResolvedShell {
   readonly args: string[];
 }
 
-/** Map a ShellKind to an executable + login/no-profile args for the current OS. */
-export function resolveShell(kind: ShellKind): ResolvedShell {
+/**
+ * Map a ShellKind to an executable + args for the current OS.
+ *
+ * Without `command` the shell is interactive (login / no-profile args): the caller
+ * drives it by writing keystrokes into the PTY.
+ *
+ * With `command` the shell is invoked NON-INTERACTIVELY to run that body and exit
+ * (`-NonInteractive -Command` / `/c` / `-c`). The body is passed as a single process
+ * argument, so on Windows the console line editor (PSReadLine) never sees it as
+ * typed input — eliminating the long-command re-render/word-wrap that corrupted
+ * launches on the GH runner.
+ */
+export function resolveShell(kind: ShellKind, command?: string): ResolvedShell {
   const isWin = process.platform === "win32";
+  const run = command !== undefined; // non-interactive: run the body and exit
   switch (kind) {
     case "pwsh":
-      return { file: isWin ? "pwsh.exe" : "pwsh", args: ["-NoLogo", "-NoProfile"] };
+      return {
+        file: isWin ? "pwsh.exe" : "pwsh",
+        args: run
+          ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command]
+          : ["-NoLogo", "-NoProfile"],
+      };
     case "powershell":
-      return { file: "powershell.exe", args: ["-NoLogo", "-NoProfile"] };
+      return {
+        file: "powershell.exe",
+        args: run
+          ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command]
+          : ["-NoLogo", "-NoProfile"],
+      };
     case "cmd":
-      return { file: "cmd.exe", args: [] };
+      return { file: "cmd.exe", args: run ? ["/d", "/c", command] : [] };
     case "git-bash":
-      return { file: "bash.exe", args: ["-l"] };
+      return { file: "bash.exe", args: run ? ["-c", command] : ["-l"] };
     case "wsl":
-      return { file: "wsl.exe", args: [] };
+      return { file: "wsl.exe", args: run ? ["bash", "-c", command] : [] };
     case "bash":
-      return { file: "bash", args: ["-l"] };
+      return { file: "bash", args: run ? ["-c", command] : ["-l"] };
     case "zsh":
-      return { file: "zsh", args: ["-l"] };
+      return { file: "zsh", args: run ? ["-c", command] : ["-l"] };
   }
 }
 
@@ -87,7 +120,7 @@ export class PtySupervisor {
 
   /** Spawn a shell PTY and register it. Returns the session handle. */
   spawn(options: PtySpawnOptions): PtySession {
-    const { file, args } = resolveShell(options.shell);
+    const { file, args } = resolveShell(options.shell, options.command);
     const pty = nativeSpawn(file, args, {
       name: "xterm-color",
       cwd: options.cwd,

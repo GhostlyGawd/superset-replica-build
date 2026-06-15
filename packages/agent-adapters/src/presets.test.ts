@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { execPath } from "node:process";
 import { BUILTIN_ADAPTERS, BUILTIN_ADAPTER_IDS } from "./descriptors.ts";
 import { AGENT_PRESETS, type AgentPreset, detectAdapter, getPreset } from "./presets.ts";
 
@@ -43,17 +45,21 @@ describe("named presets", () => {
 
 describe("detectAdapter (graceful degradation, never fakes success)", () => {
   test("a present CLI resolves to available with a path", async () => {
-    // `git` is guaranteed present on every CI runner (actions/checkout needs it)
-    // and locally — unlike an assumed toolchain binary it never flakes on the
-    // Windows runner. Reuse the claude descriptor shape with command `git`.
+    // Probe `process.execPath` — the absolute path of the runtime executing this
+    // test, guaranteed to exist on disk on every runner. A bare name (e.g. `git`)
+    // would route through `where.exe`/`which` + PATH, which is unreliable under the
+    // Bun test runtime on the GH `windows-latest` runner (it reported a present
+    // `git` as not_found). Resolving an absolute path is the deterministic probe.
     const preset: AgentPreset = {
-      descriptor: { ...getPreset("claude-code").descriptor, command: "git" },
+      descriptor: { ...getPreset("claude-code").descriptor, command: execPath },
       detection: getPreset("claude-code").detection,
       env: {},
     };
     const result = await detectAdapter(preset);
     expect(result.status).toBe("available");
+    // A non-empty path that actually exists on disk — not an exact string.
     expect(result.resolvedPath?.length).toBeGreaterThan(0);
+    expect(existsSync(result.resolvedPath ?? "")).toBe(true);
   });
 
   test("a missing CLI reports not_found with guidance, does not throw", async () => {
