@@ -1,9 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runWorker } from "./spawn-worker.ts";
 
 /**
  * P03 (real adapter dispatch) + P07 (workspace setup/teardown) proof. node-pty
@@ -75,12 +77,15 @@ let out: string;
 let exitStatus: number | null;
 let report: Report;
 
-beforeAll(() => {
+beforeAll(async () => {
   root = mkdtempSync(TMP_PREFIX);
   makeFixtureRepo(join(root, "repo"));
 
-  const result = spawnSync("node", [WORKER, root], { encoding: "utf8", timeout: 180_000 });
-  out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  // Bounded async spawn (see spawn-worker.ts): resolves as soon as the worker
+  // exits, and tree-kills + returns rather than blocking the hook to its 180s
+  // timeout if the worker ever hangs on a loaded Windows runner.
+  const result = await runWorker("node", [WORKER, root], 150_000);
+  out = result.out;
   exitStatus = result.status;
 
   const begin = out.indexOf("HOST_REPORT_BEGIN");
@@ -89,7 +94,15 @@ beforeAll(() => {
     report = JSON.parse(out.slice(begin + "HOST_REPORT_BEGIN".length, end)) as Report;
   }
 
-  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  // The worker already read every marker into the report above; the temp dir
+  // (git worktrees + PGlite data) is throwaway. Force + retry to ride out a
+  // transient Windows file lock, and SWALLOW any residual error so cleanup can
+  // never fail or hang the suite.
+  try {
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {
+    // best-effort: a leftover temp dir must never fail the run.
+  }
 }, 180_000);
 
 describe("@swarm/host — real adapter dispatch + workspace lifecycle (real orchestrator, via Node)", () => {

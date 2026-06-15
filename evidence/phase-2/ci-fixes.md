@@ -234,3 +234,38 @@ The hang had two independent guards added: the host's `close()` now force-drops 
   - `@swarm/pty-supervisor` (incl. the new `killAll`-adjacent tree-kill path) → 4 pass / 0 fail.
 - Banned-token scan (RUBRIC §6.1 pattern) over `apps packages docs` → clean (0 matches).
 - Per-package deps only (new code uses Node builtins: `node:process`, `node:http` `closeAllConnections`, and the existing `tree-kill` already in `@swarm/pty-supervisor`; no new third-party deps). Did not commit/push.
+
+---
+
+# Phase 2 — `@swarm/host` test `beforeAll` hook hang → 180s hook timeout (the synchronous `spawnSync` could not be bounded)
+
+**Date:** 2026-06-15 · **Host:** Windows 10 Home build 19045 (x64) · **Toolchain:** Node v24.14.1, Bun 1.3.14 · **Context:** after the `finishWorker` worker-hard-exit fix landed (prior section), `@swarm/agent-adapters` went green on `windows-latest`, but `@swarm/host#test` STILL failed there ONLY (green locally + on ubuntu/macOS CI) as `1 fail · (fail) (unnamed) [180446ms]` — Bun's diagnostic this time was **"a beforeEach/afterEach hook timed out for this test"** (Bun's generic wording for any lifecycle hook; these suites use `beforeAll`/`afterAll`). A ~180s hang with no assertion error. Cannot reproduce locally → fixed robustly-by-construction.
+
+## Which hook + cause — `beforeAll`, closest to **(c)**: the hook synchronously awaited a worker child that the spawner cannot bound on Windows
+
+Both host suites stand the real engine up in a spawned Node child and the **`beforeAll`** hook drove it with **`spawnSync("node", [WORKER, root], { timeout: 180_000 })`**. The reported `(unnamed) [180446ms]` ≈ the hook's OWN `beforeAll(fn, 180_000)` timeout — i.e. `spawnSync` never returned within 180s. The other two hypotheses are ruled out by the code:
+- **Not (a) — the temp-dir cleanup.** `rmSync(root, { maxRetries: 10, retryDelay: 100 })` is *bounded*: on an EBUSY/EPERM Windows lock it retries ~5.5s then **throws** (a fast hook failure), it cannot idle to 180s.
+- **Not (b) — a test-opened SyncClient.** The Bun test process opens **no** WebSocket/SyncClient at all; every WS/HTTP handle lives inside the Node worker (which uses `autoReconnect: false` and `close()`s its clients before `finishWorker`). So there is no client reconnect loop on the test side to hang.
+- **(c) — the spawned worker child, un-boundable via `spawnSync`.** `spawnSync` blocks the single Bun thread until the child's stdout pipe reaches **EOF**, and its `timeout` does **not tree-kill** on Windows: if `main()` in the worker ever fails to resolve (e.g. a lost node-pty/ConPTY `exit` event on a loaded runner leaves `await Promise.all(started.map(r => r.done))` / `await run.done` pending, so the worker never reaches `finishWorker`/`exit`), or a node-pty grandchild keeps the pipe's write end open after a kill, the synchronous read never EOFs. The `finishWorker` hard-exit only fires once `main()` resolves; it cannot rescue a hung `main()`, and a synchronous `spawnSync` cannot be wrapped in a `Promise.race` (the event loop is blocked, so no timeout callback can fire). The hook therefore ran to its own 180 000 ms cap → `(unnamed) [180446ms]`.
+
+## Fix — replace the synchronous `spawnSync` with a bounded, tree-killing async spawn; async + swallowing temp-dir cleanup
+
+1. **`apps/host/src/spawn-worker.ts` (new) — `runWorker(command, args, timeoutMs)`:** drives `child_process.spawn` (async, non-blocking) instead of `spawnSync`. It accumulates stdout+stderr into the same combined `out` string the suites parse for `HOST_REPORT_BEGIN/END` + `HOST_RESULT`/`WORKER_RESULT`, resolves the **instant** the worker process `close`s on the happy path, and on a **150 000 ms** internal bound TREE-kills the child and every descendant (`taskkill /pid <pid> /t /f` on Windows — a builtin, so no node-pty grandchild can keep a pipe/handle alive — `process.kill(pid, "SIGKILL")` on POSIX) then resolves regardless a moment later. This is "ensure any spawned worker child is dead (kill + don't await indefinitely)": the `beforeAll` hook is now bounded **by construction** and a worker hang becomes a prompt, deterministic FAIL (`expect(out).toContain("HOST_RESULT=PASS")` with the captured `out` surfaced) at ~150s instead of a 180s hook-timeout hang. The 150s bound sits below the unchanged `beforeAll(fn, 180_000)` outer net, with ample headroom over the real ~25–50s runtime.
+2. **Temp-dir cleanup → async + force/retry + SWALLOW.** `rmSync(root, { …, retryDelay: 100 })` → `await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })` from `node:fs/promises`, wrapped in `try { … } catch { /* best-effort */ }`. These are throwaway temp dirs (git worktrees + PGlite data); a cleanup failure must never fail or hang the suite. (host-integration: `afterAll`; host-lifecycle: the trailing rm inside `beforeAll`, after the worker has already read every marker into the report.)
+3. **SyncClient `close()` stops its reconnect loop — VERIFIED, no change needed.** `packages/sync/src/client.ts` `close()` sets `closed = true`, calls `clearReconnect()` (clears the `reconnectTimer`), and `conn.close()`s the socket; `handleClose`, `scheduleReconnect`, `connect`, and the gap-resync path in `apply` all early-return while `closed`, so no reconnect can be scheduled after `close()`. The product contract (mobile/desktop clients close cleanly) already holds; the worker's two clients also pass `autoReconnect: false` and `close()` before exit.
+
+## Why this is robust on the GH runner
+
+The hook no longer blocks the Bun thread on a synchronous read that depends on the worker (and all its node-pty descendants) reaching pipe-EOF. `runWorker` owns a real timeout that **tree-kills** the process subtree, so even a worker stuck on a never-resolving agent `done`, or a grandchild holding the stdout pipe, can only delay the hook to the 150s bound — never to the 180s cap. All assertions are intact: 12 tests / 91 `expect()` (host-integration P01/P02/P03/P04/P10/P11; host-lifecycle P03 real `generic` dispatch + P07 setup-before / teardown-after) run exactly as before.
+
+## Files changed
+- `apps/host/src/spawn-worker.ts` — **new**: `runWorker` bounded async spawn + `killTree` (taskkill /T /F on win32, SIGKILL on posix).
+- `apps/host/src/host-integration.test.ts` — `beforeAll` async via `runWorker(…, 150_000)`; `afterAll` async, bounded swallowing `rm`; dropped `spawnSync`/`rmSync` imports.
+- `apps/host/src/host-lifecycle.test.ts` — `beforeAll` async via `runWorker(…, 150_000)` + bounded swallowing `rm`; dropped `spawnSync`/`rmSync` imports.
+
+## Verification (this Windows host; the GH-runner hang does not reproduce locally — the host test passes locally either way)
+- `bun run lint` (biome, 140 files) → clean.
+- `bunx turbo run typecheck build test --force` (42 tasks, all packages, cache-disabled) run **2× consecutively → 2/2 full-tree green (42/42 each, 0 fail)**.
+  - `@swarm/host` → **12 pass / 0 fail, 91 expect() calls** both runs, and the suite **returns promptly** (`Ran 12 tests … [37.93s]` run 1, `[51.57s]` run 2 — well under the 180s timeout, vs the prior 180446ms hang). host-integration (P01/P02/P03/P04/P10/P11) + host-lifecycle (P03 real `generic` dispatch + P07 setup-before / teardown-after) intact. Isolated `bun test` in `apps/host` → 12 pass / 0 fail, 25.38s.
+- Banned-token scan (RUBRIC §6.1 pattern, incl. `unimplemented|stub`) over `apps packages docs` → clean (0 matches).
+- Per-package deps only (new code uses Node builtins: `node:child_process` `spawn`, the Windows `taskkill` builtin, `node:fs/promises` `rm`; no new third-party deps). Did not commit/push.

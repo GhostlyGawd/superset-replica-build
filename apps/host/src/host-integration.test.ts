@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runWorker } from "./spawn-worker.ts";
 
 /**
  * The Phase-2 proof. node-pty cannot run under Bun on Windows (ConPTY pipe →
@@ -107,13 +108,16 @@ let out: string;
 let exitStatus: number | null;
 let report: HostReport;
 
-beforeAll(() => {
+beforeAll(async () => {
   root = mkdtempSync(TMP_PREFIX);
   repoPath = join(root, "repo");
   makeFixtureRepo(repoPath);
 
-  const result = spawnSync("node", [WORKER, root], { encoding: "utf8", timeout: 180_000 });
-  out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  // Bounded async spawn (see spawn-worker.ts): resolves the instant the worker
+  // exits on the happy path, and tree-kills + returns rather than blocking the
+  // hook to its 180s timeout if the worker ever hangs on a loaded Windows runner.
+  const result = await runWorker("node", [WORKER, root], 150_000);
+  out = result.out;
   exitStatus = result.status;
 
   const begin = out.indexOf("HOST_REPORT_BEGIN");
@@ -123,9 +127,16 @@ beforeAll(() => {
   }
 }, 180_000);
 
-afterAll(() => {
+afterAll(async () => {
   if (root) {
-    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    // Throwaway temp dir (git worktrees + PGlite data): force + retry to ride out a
+    // transient Windows file lock, and SWALLOW any residual error so cleanup can
+    // never fail or hang the suite.
+    try {
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch {
+      // best-effort: a leftover temp dir must never fail the run.
+    }
   }
 });
 
