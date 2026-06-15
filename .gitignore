@@ -1,6 +1,9 @@
 node_modules/
 dist/
 build/
+# Committed electron-builder buildResources (icons) — re-included despite build/ above.
+!apps/desktop/build/
+!apps/desktop/build/**
 out/
 .turbo/
 .cache/

@@ -1,0 +1,65 @@
+# Grove desktop packaging (ADR-0005 Electron + ADR-0016 electron-builder).
+#
+# `bun run build` produces a fully self-contained app under dist/:
+#   dist/main.js              bundled Electron main (bun build, esm, only electron external)
+#   dist/preload.cjs          bundled preload (cjs, sandbox-safe)
+#   dist/renderer/index.html  vite-built renderer + dist/renderer/assets/**
+# main.ts resolves the renderer relative to main.js (dirname(import.meta.url)/renderer),
+# so loadFile works unchanged inside the packaged app.asar — no dev-path assumption.
+#
+# Because main/preload/renderer are bundled (nothing is required from node_modules at
+# runtime except electron itself), the package ships dist/ + package.json only and
+# excludes node_modules — no native rebuild, no workspace-symlink walking.
+#
+# Unsigned by design (no paid certs): no certificate env is referenced; mac signing +
+# notarization are disabled. SmartScreen / Gatekeeper implications are documented in
+# PACKAGING.md. CI validates `electron-builder --dir` (W5); full installers are produced
+# locally (W6) under evidence/phase-5/.
+appId: sh.grove.desktop
+productName: Grove
+copyright: Copyright © 2026 Grove
+
+directories:
+  output: release
+  buildResources: build
+
+# Ship the built app only. main/preload/renderer are self-contained bundles, so prod
+# node_modules are intentionally excluded (electron is provided by the runtime).
+files:
+  - dist/**
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/**"
+
+asar: true
+# No native modules in the packaged app — skip the rebuild step entirely.
+npmRebuild: false
+buildDependenciesFromSource: false
+
+win:
+  target: nsis
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+mac:
+  target:
+    - dmg
+    - zip
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  # Unsigned, un-notarized local/CI build (no paid Developer ID).
+  identity: null
+  notarize: false
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/icons
+  category: Development
+  maintainer: Grove <saintwraith.biz@gmail.com>
+  description: Grove — mission control for a swarm of agents working a grove of worktrees.

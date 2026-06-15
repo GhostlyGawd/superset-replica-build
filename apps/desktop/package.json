@@ -8,6 +8,9 @@
     "dev": "vite",
     "dev:electron": "node ./scripts/dev-electron.mjs",
     "build": "vite build && bun build ./src/main.ts --outfile=./dist/main.js --target node --format esm --external electron && bun build ./src/preload.ts --outfile=./dist/preload.cjs --target node --format cjs --external electron",
+    "build:icons": "node ./scripts/generate-app-icons.mjs",
+    "build:installer": "bun run build && electron-builder",
+    "package:dir": "bun run build && electron-builder --dir",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src",
     "test:e2e": "playwright test"
@@ -38,6 +41,8 @@
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.5.0",
     "electron": "^42.4.0",
+    "electron-builder": "^26.0.12",
+    "png2icons": "^2.0.1",
     "postcss": "^8.5.15",
     "tailwindcss": "^3.4.17",
     "vite": "^8.0.16"
