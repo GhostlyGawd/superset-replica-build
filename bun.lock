@@ -78,6 +78,11 @@
     "packages/agent-adapters": {
       "name": "@swarm/agent-adapters",
       "version": "0.1.0",
+      "dependencies": {
+        "@swarm/db": "workspace:*",
+        "@swarm/pty-supervisor": "workspace:*",
+        "@swarm/shared": "workspace:*",
+      },
     },
     "packages/api": {
       "name": "@swarm/api",

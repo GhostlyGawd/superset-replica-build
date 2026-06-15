@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,8 +47,20 @@ async function makeFixture(): Promise<Fixture> {
 }
 
 function samePathTest(a: string, b: string): boolean {
-  const na = a.replace(/\\/g, "/");
-  const nb = b.replace(/\\/g, "/");
+  // Canonicalize through the OS realpath where the path exists, so a symlinked
+  // temp root (macOS `/var` → `/private/var`) or a Windows short/cased path
+  // collapses to one true form before comparing — the same contract the engine's
+  // own `samePath` enforces. Falls back to a plain separator-normalize when the
+  // path is gone (e.g. an already-removed/pruned worktree).
+  const canon = (p: string): string => {
+    try {
+      return realpathSync.native(p).replace(/\\/g, "/");
+    } catch {
+      return p.replace(/\\/g, "/");
+    }
+  };
+  const na = canon(a);
+  const nb = canon(b);
   return process.platform === "win32" ? na.toLowerCase() === nb.toLowerCase() : na === nb;
 }
 

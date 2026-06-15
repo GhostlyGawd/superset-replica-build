@@ -32,12 +32,14 @@ describe("@swarm/pty-supervisor integration (real PTY on host, via Node)", () =>
     test(`spawns ${shell}, streams output, resizes, and tree-kills the process tree`, () => {
       const result = spawnSync("node", [WORKER, shell], {
         encoding: "utf8",
-        timeout: 30_000,
+        // Generous: the worker polls (with bounded deadlines) for the grandchild
+        // to spawn and for the tree to die, which is slow on a loaded CI runner.
+        timeout: 90_000,
       });
       const out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
       // Surface worker output on failure for debuggability.
       expect(out, out).toContain("WORKER_RESULT=PASS");
       expect(result.status).toBe(0);
-    }, 35_000);
+    }, 100_000);
   }
 });

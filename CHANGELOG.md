@@ -11,9 +11,13 @@ this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0
 - Completed `@swarm/api` tRPC surface to all 13 routers of architecture §3.1 (sessions, presets, ports, notifications, settings, host, auth + completed config/diffs/workspaces/agents/terminal).
 - `SwarmConfig` (`packages/config`) reshaped to ordered `Command[]` for setup/teardown/run with per-OS shell support (PowerShell/cmd/bash/sh/zsh/wsl) + per-field before/after overlay + zero-dep validator (9 tests).
 - **Host engine — worktree, persistence, sync (Phase 2 wave 2).** `packages/git-worktree`: real `WorktreeEngine` over native git (create/list/status/remove/prune/import; branch-per-task on a shared object store; Windows path + `core.longpaths` handling; isolation-proven tests). `packages/db`: Drizzle schema (13 tables incl. an append-only `events` log with a gapless monotonic seq) over **PGlite** with auto-run migrations and `DATABASE_URL` selecting PGlite or a real Postgres. `packages/sync`: WebSocket event-log sync — single-writer append + live fan-out, resume-token catch-up, and a reconnect/backoff client proven to resume with no gaps/dupes (browser-safe `.` entry + Node-only `@swarm/sync/server`).
+- **Agent adapters (Phase 2 wave 3a).** `packages/agent-adapters`: a zero-config universal terminal adapter (runs any CLI agent in a PTY, infers running/needs-attention/done/error status via an exit-code sentinel) + named presets for Claude Code / Codex CLI / Cursor Agent / Gemini CLI (with PATH-detection + graceful degradation when a CLI is absent — never faked) + a flag-gated headless **mock adapter** (drives a real fake-CLI over PTY for keyless e2e). Zero external deps.
 
 ### Changed
 - **ADR-0007a:** the PTY layer / host engine runs under **Node**, not Bun — Bun tears down the ConPTY `net.Socket` on Windows. Validated node-pty + the multiarch fallback on Node 24 across the OS matrix.
+
+### Fixed
+- Cross-platform test robustness (caught by the Windows + macOS CI jobs): worktree `import`/`samePath` now canonicalize real paths via `fs.realpathSync.native`, so adopting an external worktree is stable across macOS symlinked temp dirs (`/var`→`/private/var`) and Windows short-paths/drive-letter casing; the PTY integration test polls (bounded) for the spawned child PID before asserting tree-kill, removing CI timing flakiness.
 
 ## [0.2.0] - 2026-06-14
 

@@ -1,0 +1,135 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { type AdapterDescriptor, type AdapterId, BUILTIN_ADAPTERS } from "./descriptors.ts";
+import { DEFAULT_DETECTION, type StatusDetection } from "./status.ts";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Named adapter presets (spec §2, P03). Each preset is the built-in descriptor
+ * plus tuned status detection and default env, layered on the universal terminal
+ * adapter. They never fake a run: if the CLI is not installed, `detectAdapter`
+ * reports `not_found` with an actionable message and the caller surfaces it.
+ */
+export interface AgentPreset {
+  readonly descriptor: AdapterDescriptor;
+  readonly detection: StatusDetection;
+  readonly env: Readonly<Record<string, string>>;
+}
+
+// Per-agent heuristics. Exit code stays authoritative (handled by the terminal
+// adapter); these only narrow when an agent is *waiting* or has *finished a turn*
+// while its process keeps running. Tunable later in Settings → Agents.
+const DETECTION_BY_ID: Readonly<Record<AdapterId, StatusDetection>> = {
+  "claude-code": {
+    idleMs: 12_000,
+    promptPatterns: [/do you want to proceed\?/i, /\(y\/n\)/i, /❯/, /press\s+enter/i],
+    donePatterns: [],
+    errorPatterns: [/^\s*error:/im, /execution error/i],
+  },
+  "codex-cli": {
+    idleMs: 12_000,
+    promptPatterns: [/allow command\?/i, /\(y\/n\)/i, /approve\?/i],
+    donePatterns: [],
+    errorPatterns: [/^\s*error:/im],
+  },
+  "cursor-agent": {
+    idleMs: 12_000,
+    promptPatterns: [/\(y\/n\)/i, /accept\?/i, /apply changes\?/i],
+    donePatterns: [],
+    errorPatterns: [/^\s*error:/im],
+  },
+  "gemini-cli": {
+    idleMs: 12_000,
+    promptPatterns: [/\(y\/n\)/i, /confirm\?/i, /press\s+enter/i],
+    donePatterns: [],
+    errorPatterns: [/^\s*error:/im],
+  },
+  generic: DEFAULT_DETECTION,
+};
+
+const ENV_BY_ID: Readonly<Record<AdapterId, Readonly<Record<string, string>>>> = {
+  "claude-code": {},
+  "codex-cli": {},
+  "cursor-agent": {},
+  "gemini-cli": {},
+  generic: {},
+};
+
+export const AGENT_PRESETS: readonly AgentPreset[] = BUILTIN_ADAPTERS.map((descriptor) => ({
+  descriptor,
+  detection: DETECTION_BY_ID[descriptor.id],
+  env: ENV_BY_ID[descriptor.id],
+}));
+
+const PRESETS_BY_ID = new Map<AdapterId, AgentPreset>(
+  AGENT_PRESETS.map((preset) => [preset.descriptor.id, preset]),
+);
+
+export function getPreset(id: AdapterId): AgentPreset {
+  const preset = PRESETS_BY_ID.get(id);
+  if (preset === undefined) {
+    throw new Error(`Unknown adapter id: ${id}`);
+  }
+  return preset;
+}
+
+export type AvailabilityStatus = "available" | "not_found" | "unknown";
+
+export interface AdapterAvailability {
+  readonly adapterId: AdapterId;
+  readonly command: string;
+  readonly status: AvailabilityStatus;
+  readonly resolvedPath?: string;
+  /** One-line, user-facing explanation suitable for Settings → Agents. */
+  readonly detail: string;
+}
+
+/**
+ * Probe whether a preset's CLI is on PATH, using `where` (Windows) / `which`
+ * (POSIX). Never throws and never fakes success: a missing CLI returns
+ * `not_found` with guidance, so the universal adapter can still be configured by
+ * hand. The generic adapter has no fixed command and reports `unknown`.
+ */
+export async function detectAdapter(preset: AgentPreset): Promise<AdapterAvailability> {
+  const { id } = preset.descriptor;
+  const command = preset.descriptor.command;
+  if (preset.descriptor.generic || command.length === 0) {
+    return {
+      adapterId: id,
+      command,
+      status: "unknown",
+      detail: "Generic adapter: provide any terminal command to launch it.",
+    };
+  }
+  const finder = process.platform === "win32" ? "where" : "which";
+  try {
+    const { stdout } = await execFileAsync(finder, [command]);
+    const resolvedPath = stdout
+      .split(/\r?\n/)
+      .find((line) => line.trim().length > 0)
+      ?.trim();
+    if (resolvedPath === undefined) {
+      return {
+        adapterId: id,
+        command,
+        status: "not_found",
+        detail: `${preset.descriptor.label} CLI "${command}" was not found on PATH.`,
+      };
+    }
+    return {
+      adapterId: id,
+      command,
+      status: "available",
+      resolvedPath,
+      detail: `${preset.descriptor.label} resolved to ${resolvedPath}.`,
+    };
+  } catch {
+    return {
+      adapterId: id,
+      command,
+      status: "not_found",
+      detail: `${preset.descriptor.label} CLI "${command}" is not installed or not on PATH. Install it or set a custom command in Settings → Agents.`,
+    };
+  }
+}

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -188,10 +189,28 @@ async function runGit(args: readonly string[], cwd?: string): Promise<Result<str
 
 // --- path helpers -----------------------------------------------------------
 
-/** Compare two filesystem paths, case-insensitively on Windows. */
+/**
+ * Resolve `p` to its canonical, POSIX-normalized real path. When the path exists
+ * we follow it through the OS realpath so the two ways the same location can be
+ * spelled collapse to one form — macOS canonicalizes temp dirs through a symlink
+ * (`/var` → `/private/var`) and Windows may hand back 8.3 short names or a
+ * different drive-letter case. When the path does not exist (yet) we fall back to
+ * a plain `resolve`. This is what lets an adopted external worktree's ref compare
+ * equal to what `git worktree list` reports, regardless of host.
+ */
+function canonicalPath(p: string): string {
+  const resolved = resolve(p);
+  try {
+    return toPosixPath(realpathSync.native(resolved));
+  } catch {
+    return toPosixPath(resolved);
+  }
+}
+
+/** Compare two filesystem paths by canonical real form, case-insensitively on Windows. */
 function samePath(a: string, b: string): boolean {
-  const na = toPosixPath(resolve(a));
-  const nb = toPosixPath(resolve(b));
+  const na = canonicalPath(a);
+  const nb = canonicalPath(b);
   return process.platform === "win32" ? na.toLowerCase() === nb.toLowerCase() : na === nb;
 }
 
@@ -596,7 +615,10 @@ export class WorktreeEngine {
       workspaceId: options.workspaceId,
       branch,
       baseBranch: options.baseBranch ?? branch,
-      path: toPosixPath(target),
+      // Canonical real path (the worktree exists on disk here), so the returned
+      // ref matches `list()` output even when the temp root is symlinked (macOS)
+      // or reported as a short/different-cased path (Windows).
+      path: canonicalPath(target),
     });
   }
 }
