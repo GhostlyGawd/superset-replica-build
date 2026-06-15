@@ -33,6 +33,7 @@
     "@playwright/test": "^1.60.0",
     "@swarm/pty-supervisor": "workspace:*",
     "@types/react": "^19.2.17",
+    "axe-core": "^4.10.2",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.5.0",
