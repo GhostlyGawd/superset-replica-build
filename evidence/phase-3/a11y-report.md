@@ -93,7 +93,7 @@ The moderate item is a follow-up. Concrete fixes:
 - Ship-quality call: address the 1 critical (`aria-controls` dangling reference) and the serious
   contrast issues; the moderate heading item is a logged follow-up.
 
-Reproduce: from `apps/desktop`, `node ./node_modules/@playwright/test/cli.js test e2e/_a11y.spec.ts`
+Reproduce: from `apps/desktop`, `GROVE_E2E_MEASURE=1 node ./node_modules/@playwright/test/cli.js test _a11y.spec.ts` (the env flag lifts the default `testIgnore` on `_*.spec.ts`)
 (violations + keyboard results are written to `grove-a11y-results.json` in the OS temp dir).
 
 ## Post-fix re-audit (2026-06-15)

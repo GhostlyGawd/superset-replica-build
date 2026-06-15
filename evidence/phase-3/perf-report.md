@@ -111,5 +111,5 @@ command processing. Expected mitigations to confirm in Phase 6: measure on macOS
   PowerShell, not Grove's transport — the cross-platform re-measurement is the Phase-6 perf
   follow-up.
 
-Reproduce: from `apps/desktop`, `node ./node_modules/@playwright/test/cli.js test e2e/_perf.spec.ts`
+Reproduce: from `apps/desktop`, `GROVE_E2E_MEASURE=1 node ./node_modules/@playwright/test/cli.js test _perf.spec.ts` (the env flag lifts the default `testIgnore` on `_*.spec.ts`)
 (numbers are written to a machine-readable `grove-perf-results.json` in the OS temp dir).

@@ -14,9 +14,10 @@ export default defineConfig({
   // `_*.spec.ts` are measurement/evidence tools (perf timings, axe audit, QA
   // screenshots), not behavioural gates — they are slow and timing-sensitive
   // (cold-shell variance), so they are excluded from the default `playwright test`
-  // run (incl. the CI e2e job). Run them explicitly, e.g.
-  // `node ./node_modules/@playwright/test/cli.js test _perf.spec.ts`.
-  testIgnore: ["**/_*.spec.ts"],
+  // run (incl. the CI e2e job). Playwright applies `testIgnore` BEFORE positional
+  // filters, so to run them you must lift the ignore via the env flag, e.g.
+  // `GROVE_E2E_MEASURE=1 node ./node_modules/@playwright/test/cli.js test _perf.spec.ts`.
+  testIgnore: process.env.GROVE_E2E_MEASURE ? [] : ["**/_*.spec.ts"],
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
