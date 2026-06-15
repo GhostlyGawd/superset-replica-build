@@ -15,18 +15,18 @@
     }
   },
   "host_os": "windows",
-  "current_phase": 1,
+  "current_phase": 2,
   "phase_status": {
     "0_recon_architecture": "done (v0.1.0; CI run 27519073829; Critic 11/0 PASS)",
-    "1_brand_design": "in_progress",
-    "2_host_engine": "not_started",
+    "1_brand_design": "done (v0.2.0; CI run 27520745796; Critic 5/5 PASS; screenshots evidence/phase-1)",
+    "2_host_engine": "in_progress",
     "3_desktop_client": "not_started",
     "4_mobile_client": "not_started",
     "5_platform_setup": "not_started",
     "6_hardening_launch": "not_started"
   },
-  "version": "0.1.0",
-  "next_release_target": "0.2.0",
+  "version": "0.2.0",
+  "next_release_target": "0.3.0",
   "toolchain": {
     "git": "2.53.0", "gh": "2.89.0 (authed: GhostlyGawd)", "node": "24.14.1",
     "npm": "11.11.0", "bun": "installed", "pnpm": "installed",
@@ -49,13 +49,14 @@
     "tunnel": "cloudflared / localtunnel (OSS) — Phase 5"
   },
   "next_actions": [
-    "Phase 1: Brand & Design Director -> docs/brand/ (name, story, identity) + docs/design-system.md (thesis, type scale, color, spacing/radii/elevation, motion, reduced-motion) + tokens + primitive component lib; must pass §6.3 anti-slop design gate (Critic) before any feature UI",
-    "Phase 1 Critic gate, then cut v0.2.0",
-    "Then Phase 2: Host Engine (node-pty validation gate first per ADR-0007)"
+    "Phase 2 wave 1a: node-pty/ConPTY validation gate on Windows (ADR-0007) — confirm node-pty loads+spawns PTY on Node 24; spike pty-supervisor (spawn PowerShell+cmd, stream ANSI, tree-kill); recommend pty pkg + engine Node version; evidence/phase-2/pty-validation.md",
+    "Phase 2 wave 1b: fix the critic_followups_for_phase2 contracts (complete @swarm/api routers; SwarmConfig array-of-commands + per-field overlay) — keep CI green",
+    "Phase 2 waves 2+: git-worktree engine, agent adapters (claude/codex/cursor/gemini/generic), Drizzle+PGlite persistence, Hono+tRPC secure API, WS event-log sync; integration tests prove parallel isolated agents stream status; Critic gate -> v0.3.0"
   ],
   "critic_followups_for_phase2": [
     "packages/api AppRouter implements 6 of 13 routers from architecture §3.1 — add sessions/presets/ports/notifications/settings/host/auth; complete config/diffs; fix the 'full tRPC surface' comment to be accurate",
-    "packages/config SwarmConfig must match recon §6 / architecture §2: array-of-commands for setup/teardown/run + per-field before/after overlay (not single command + flat overlay)"
+    "packages/config SwarmConfig must match recon §6 / architecture §2: array-of-commands for setup/teardown/run + per-field before/after overlay (not single command + flat overlay)",
+    "[phase-1 a11y nit, non-blocking] extend tokens.test.ts to assert fg-subtle AA on raised+overlay surfaces (currently only surface); fold into Phase 6 a11y audit if it forces a token tweak"
   ],
   "blocked": [],
   "last_updated": "2026-06-14"

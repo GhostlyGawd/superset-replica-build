@@ -121,7 +121,7 @@ the compact `AgentStatusDot` additionally distinguishes *idle* (hollow ring) and
 ### 3.3 Contrast — WCAG AA, enforced in CI
 
 Every text pair clears **4.5:1** (normal text); every non-text signal — status dots, the focus
-ring, the control boundary — clears **3:1** (SC 1.4.11). These are not claims in prose: all 60
+ring, the control boundary — clears **3:1** (SC 1.4.11). These are not claims in prose: all 52
 documented pairs across both themes are asserted in `packages/ui/src/tokens.test.ts`, so a
 regression that breaks AA fails `bun test`.
 
