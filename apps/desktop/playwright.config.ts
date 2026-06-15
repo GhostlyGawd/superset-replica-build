@@ -11,6 +11,12 @@ const PORT = 4318;
  */
 export default defineConfig({
   testDir: "./e2e",
+  // `_*.spec.ts` are measurement/evidence tools (perf timings, axe audit, QA
+  // screenshots), not behavioural gates — they are slow and timing-sensitive
+  // (cold-shell variance), so they are excluded from the default `playwright test`
+  // run (incl. the CI e2e job). Run them explicitly, e.g.
+  // `node ./node_modules/@playwright/test/cli.js test _perf.spec.ts`.
+  testIgnore: ["**/_*.spec.ts"],
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
