@@ -72,6 +72,7 @@ beforeAll(async () => {
     endpoint: () => "http://127.0.0.1:0",
     token: "test-bearer",
     pairing: new PairingStore(),
+    vapidPublicKey: "test-vapid-public-key",
   };
   caller = createAppCaller(services);
 });

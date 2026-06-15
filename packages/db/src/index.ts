@@ -97,6 +97,28 @@ export interface HotkeyOverride {
   readonly scope: string | null;
 }
 
+/** A user-facing notification row (P04/P12). `workspaceId` is null for host-wide
+ *  notices; `read` drives the unread filter the phone's inbox uses. */
+export interface Notification {
+  readonly id: string;
+  readonly workspaceId: WorkspaceId | null;
+  readonly kind: string;
+  readonly title: string;
+  readonly body: string;
+  readonly read: boolean;
+  readonly createdAt: string;
+}
+
+/** A stored Web Push subscription (VAPID; ADR-0014). `endpoint` is the push
+ *  service URL (unique per device); `keys` carries the `p256dh`/`auth` the
+ *  payload is encrypted against. The bearer never lives here. */
+export interface PushSubscriptionRecord {
+  readonly id: string;
+  readonly endpoint: string;
+  readonly keys: Readonly<Record<string, string>>;
+  readonly createdAt: string;
+}
+
 /** Table names in one place so schema and queries cannot drift. */
 export const TABLES = {
   projects: "projects",

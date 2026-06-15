@@ -46,10 +46,16 @@ function ThemeChoice() {
 
 /**
  * Settings content — theme + about are local and work without a host; the
- * Connection section is supplied by the caller (`connectionSlot`) so it renders the
- * live paired-host card once the phone is linked (ADR-0014).
+ * Connection + Notifications sections are supplied by the caller (`connectionSlot`,
+ * `notificationsSlot`) so they render live once the phone is linked (ADR-0014).
  */
-export function SettingsPanel({ connectionSlot }: { readonly connectionSlot: ReactNode }) {
+export function SettingsPanel({
+  connectionSlot,
+  notificationsSlot,
+}: {
+  readonly connectionSlot: ReactNode;
+  readonly notificationsSlot?: ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-2">
@@ -61,6 +67,13 @@ export function SettingsPanel({ connectionSlot }: { readonly connectionSlot: Rea
         <SectionLabel>Connection</SectionLabel>
         {connectionSlot}
       </section>
+
+      {notificationsSlot ? (
+        <section className="flex flex-col gap-2">
+          <SectionLabel>Notifications</SectionLabel>
+          {notificationsSlot}
+        </section>
+      ) : null}
 
       <section className="flex flex-col gap-2">
         <SectionLabel>About</SectionLabel>

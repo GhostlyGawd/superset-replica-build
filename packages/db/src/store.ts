@@ -15,7 +15,9 @@ import {
   DEFAULT_DATABASE_URL,
   type EventRow,
   type HotkeyOverride,
+  type Notification,
   type Project,
+  type PushSubscriptionRecord,
   type Session,
   type SessionMode,
   type Workspace,
@@ -26,7 +28,9 @@ import {
   events,
   agentPresets,
   hotkeyOverrides,
+  notifications,
   projects,
+  pushSubscriptions,
   sessions,
   syncCursors,
   workspaces,
@@ -210,6 +214,21 @@ export interface Store {
   }): Promise<HotkeyOverride>;
   clearHotkeyOverride(actionId: string, scope?: string): Promise<void>;
   clearHotkeyOverrides(scope?: string): Promise<void>;
+  // Notifications + Web Push subscriptions (P04/P12, ADR-0014)
+  createNotification(input: {
+    workspaceId?: WorkspaceId | null;
+    kind: string;
+    title: string;
+    body?: string;
+  }): Promise<Notification>;
+  listNotifications(opts?: { unreadOnly?: boolean }): Promise<Notification[]>;
+  markNotificationRead(id: string): Promise<void>;
+  upsertPushSubscription(input: {
+    endpoint: string;
+    keys: Readonly<Record<string, string>>;
+  }): Promise<PushSubscriptionRecord>;
+  listPushSubscriptions(): Promise<PushSubscriptionRecord[]>;
+  removePushSubscription(endpoint: string): Promise<void>;
   // Event log (sync backbone)
   appendEvent(input: AppendEventInput): Promise<EventRow>;
   readEventsFromSeq(
@@ -432,6 +451,45 @@ function buildStore(db: Db, close: () => Promise<void>): Store {
             ? isNull(hotkeyOverrides.osScope)
             : eq(hotkeyOverrides.osScope, scope),
         );
+    },
+
+    async createNotification(input) {
+      const rows = await db
+        .insert(notifications)
+        .values({
+          id: `ntf_${crypto.randomUUID()}`,
+          workspaceId: input.workspaceId ?? null,
+          kind: input.kind,
+          title: input.title,
+          body: input.body ?? "",
+        })
+        .returning();
+      return one(rows, "createNotification");
+    },
+    async listNotifications(opts) {
+      const base = db.select().from(notifications);
+      const q = opts?.unreadOnly ? base.where(eq(notifications.read, false)) : base;
+      return q.orderBy(desc(notifications.createdAt));
+    },
+    async markNotificationRead(id) {
+      await db.update(notifications).set({ read: true }).where(eq(notifications.id, id));
+    },
+    async upsertPushSubscription(input) {
+      // Upsert by the unique `endpoint`: a device that re-subscribes (rotated keys)
+      // replaces its prior row rather than duplicating, so each device is stored once.
+      const keys = { ...input.keys };
+      const rows = await db
+        .insert(pushSubscriptions)
+        .values({ id: `psub_${crypto.randomUUID()}`, endpoint: input.endpoint, keys })
+        .onConflictDoUpdate({ target: pushSubscriptions.endpoint, set: { keys } })
+        .returning();
+      return one(rows, "upsertPushSubscription");
+    },
+    async listPushSubscriptions() {
+      return db.select().from(pushSubscriptions).orderBy(asc(pushSubscriptions.createdAt));
+    },
+    async removePushSubscription(endpoint) {
+      await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
     },
 
     async appendEvent(input) {

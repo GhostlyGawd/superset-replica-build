@@ -59,6 +59,8 @@ export interface HostServices {
   readonly token: string;
   /** Single-use pairing codes that bootstrap the mobile PWA (ADR-0014). */
   readonly pairing: PairingStore;
+  /** The host's VAPID public key — handed to the PWA so it can subscribe to push. */
+  readonly vapidPublicKey: string;
 }
 
 export interface HostContext {
@@ -408,6 +410,45 @@ export function createAppRouter() {
         .query(({ ctx, input }) =>
           ctx.services.store.listSessions(asId<"WorkspaceId">(input.workspaceId)),
         ),
+    }),
+
+    /**
+     * Notifications + Web Push (ADR-0014 decision 5), implementing the `@swarm/api`
+     * NotificationsRouter against the existing `notifications` + `push_subscriptions`
+     * tables. `vapidPublicKey` hands the PWA the application server key it subscribes
+     * with; `subscribePush` stores the device's subscription (bearer-gated — only a
+     * paired phone can register one); `list`/`markRead` drive the in-app inbox. The
+     * SEND path is wired in `server.ts` to the real `needs_attention` transition.
+     */
+    notifications: t.router({
+      vapidPublicKey: t.procedure.query(({ ctx }) => ({ key: ctx.services.vapidPublicKey })),
+      subscribePush: t.procedure
+        .input(
+          z.object({
+            subscription: z.object({
+              endpoint: z.string().min(1),
+              keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }),
+            }),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          await ctx.services.store.upsertPushSubscription({
+            endpoint: input.subscription.endpoint,
+            keys: input.subscription.keys,
+          });
+          return { ok: true as const };
+        }),
+      list: t.procedure
+        .input(z.object({ unreadOnly: z.boolean().optional() }).optional())
+        .query(({ ctx, input }) =>
+          ctx.services.store.listNotifications({ unreadOnly: input?.unreadOnly }),
+        ),
+      markRead: t.procedure
+        .input(z.object({ id: z.string().min(1) }))
+        .mutation(async ({ ctx, input }) => {
+          await ctx.services.store.markNotificationRead(input.id);
+          return { ok: true as const };
+        }),
     }),
 
     /**

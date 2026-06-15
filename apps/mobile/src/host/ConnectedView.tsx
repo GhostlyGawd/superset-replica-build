@@ -3,6 +3,7 @@ import type { TabDef, TabId } from "../shell/tabs.ts";
 import { AgentsView } from "./AgentsView.tsx";
 import { ConnectionCard } from "./ConnectionCard.tsx";
 import { DiffReview } from "./DiffReview.tsx";
+import { NotificationsCard } from "./NotificationsCard.tsx";
 import { WorkspaceList } from "./WorkspaceList.tsx";
 import { TerminalView } from "./terminal/TerminalView.tsx";
 import type { HostState } from "./useHost.ts";
@@ -71,6 +72,7 @@ export function ConnectedTabBody({
             />
           ) : null
         }
+        notificationsSlot={host.client ? <NotificationsCard client={host.client} /> : null}
       />
     );
   }

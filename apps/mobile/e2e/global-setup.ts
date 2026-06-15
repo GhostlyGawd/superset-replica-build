@@ -137,11 +137,16 @@ async function globalSetup(): Promise<void> {
   });
 
   // One live transition so the PWA's `/sync` subscription has an event to fold in.
+  // It ALSO drives the host's Web Push send path (W5): the subscriber records a
+  // `needs_attention` notification row (no device is subscribed yet, so nothing is
+  // pushed) — the real row the push e2e's inbox renders + marks read. A brief settle
+  // lets that async record land before the specs run.
   await eventLog.append({
     type: "workspace.status_changed",
     workspaceId: second.id,
     status: "needs_attention",
   });
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
   const code = await mintPairCode(host.endpoint, host.token);
   const fixture: PairFixture = { url: BASE_URL, code, token: host.token };

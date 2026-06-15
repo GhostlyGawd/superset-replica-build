@@ -19,6 +19,7 @@ import { cors } from "hono/cors";
 import { Orchestrator } from "./orchestrator.ts";
 import { PairingStore } from "./pair.ts";
 import { PgliteEventLogStore } from "./pglite-event-log-store.ts";
+import { PUSH_CAPTURE_ENV, PushSender, loadOrCreateVapid } from "./push.ts";
 import { type TerminalServer, createTerminalServer } from "./terminal-server.ts";
 import { type HostServices, createAppRouter, osName } from "./trpc.ts";
 import { HOST_VERSION } from "./version.ts";
@@ -140,6 +141,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const endpoint = (): string => `http://${bindHost}:${boundPort}`;
   const pairing = new PairingStore();
 
+  // The host's durable home (manifest + VAPID keypair). Resolved up-front so the
+  // VAPID public key is known before the services are built — the PWA subscribes
+  // against it, and it is generated once + reused so devices stay subscribed.
+  const manifestDir = options.manifestDir ?? join(homedir(), ".grove", "host");
+  mkdirSync(manifestDir, { recursive: true });
+  const vapid = loadOrCreateVapid(manifestDir);
+
   const services: HostServices = {
     store,
     eventLog,
@@ -152,7 +160,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     endpoint,
     token,
     pairing,
+    vapidPublicKey: vapid.publicKey,
   };
+
+  // Web Push send path (ADR-0014 decision 5): when a workspace flips to
+  // `needs_attention`, record a notification + push it to every stored device.
+  // Hooked to the SAME event the orchestrator emits, so it fires on the real
+  // status transition with no extra plumbing on the orchestration hot path.
+  const pushSender = new PushSender({
+    store,
+    vapid,
+    captureFile: process.env[PUSH_CAPTURE_ENV],
+  });
+  const unsubscribePush = eventLog.subscribe((stored) => {
+    const ev = stored.event;
+    if (ev.type === "workspace.status_changed" && ev.status === "needs_attention") {
+      void pushSender.notifyNeedsAttention(ev.workspaceId);
+    }
+  });
 
   const appRouter = createAppRouter();
   const app = new Hono();
@@ -241,8 +266,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
 
   const resolvedEndpoint = endpoint();
-  const manifestDir = options.manifestDir ?? join(homedir(), ".grove", "host");
-  mkdirSync(manifestDir, { recursive: true });
   const manifestPath = join(manifestDir, "manifest.json");
   const manifest: HostManifest = {
     endpoint: resolvedEndpoint,
@@ -270,6 +293,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       //   3) force-close lingering keep-alive HTTP/WS sockets (undici's fetch pool
       //      keeps these OPEN — plain `server.close()` then waits forever for them),
       //      THEN stop accepting and close the listener.
+      unsubscribePush();
       await sync.close();
       await terminal.close();
       await orchestrator.shutdown();
