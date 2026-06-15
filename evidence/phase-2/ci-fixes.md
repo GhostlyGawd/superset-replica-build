@@ -119,3 +119,45 @@ node-pty's `argsToCommandLine` (CRT-compatible) quotes the body as a single argu
   - `apps/host` real `generic` dispatch + P07 setup/teardown (now non-interactive) → PASS.
 - Banned-token scan (RUBRIC §6.1 pattern, incl. `unimplemented|stub`) over `apps packages docs` → clean (zero matches).
 - Per-package deps only (new imports are Node builtins: `node:fs`, `node:path`, `node:process`). Did not commit/push.
+
+---
+
+# Phase 2 — DIRECT-spawn agent launch (final windows-latest blocker: shell→child-stdout chain yielded zero output)
+
+**Date:** 2026-06-15 · **Host:** Windows 10 Home build 19045 (x64) · **Toolchain:** Node v24.14.1, Bun 1.3.14 · **Context:** after the non-interactive-shell + `.mjs` fake-CLI fixes, `@swarm/agent-adapters › mock adapter integration (real PTY via Node worker)` STILL failed ONLY on the GH `windows-latest` runner (passed on ubuntu/macOS CI **and** local Windows). This is the root-cause fix; it keeps every assertion intact (or stronger) and weakens no coverage.
+
+## Root cause — a shell forwarding a child's stdout through ConPTY
+
+The terminal adapter launched the agent by spawning a **shell** (`powershell -NonInteractive -Command "& 'node' '<fake-cli>' …; Write-Host \"__SWARM_EXIT__:$LASTEXITCODE\""`) and reading the **child** (node) process's stdout **through the shell + ConPTY**. On the GH `windows-latest` runner that chain produced **zero output** (`token=false file=false`), then idled to `needs_attention` and timed out — the child's stdout was never observed and the printed exit sentinel never arrived. Critically, the supervisor's OWN windows-CI test, which spawns a process **directly** in a PTY (`spawn → stream → tree-kill`), **passes** on the runner. The difference was the intermediate shell that had to forward a grandchild's stdout; the agent launch (and any real-adapter launch via the shared `launchTerminalAdapter`) was therefore unproven on Windows. The shell-wrapper + child-stdout chain — not quoting/PSReadLine this time — was the root cause.
+
+## Fix — spawn the agent process DIRECTLY in the PTY (its stdout IS the ConPTY)
+
+The agent process is now the PTY's **own** process — the exact pattern the supervisor's green windows-CI probe uses — so no intermediate shell forwards a child's stdout, and there is no printed exit sentinel to parse.
+
+- **`packages/pty-supervisor/src/index.ts`** — added `spawnProcess({workspaceId,file,args,cwd,cols,rows,env?})` (direct node-pty `spawn(file,args,{cwd,env,cols,rows})`, env merged over `process.env`) and `onExit(ptyId, listener) → PtyExit{exitCode,signal?}` wired to node-pty's `onExit`; a shared private `register()` wires `onData`+`onExit` for both spawn paths; a late `onExit` subscriber still gets the stored exit. The interactive/shell `spawn` (probe + P07 lifecycle) is unchanged. `PtySession.shell` is now optional (a directly-spawned process has no shell).
+- **`packages/agent-adapters/src/terminal-adapter.ts`** — `launchTerminalAdapter` now calls `supervisor.spawnProcess(resolveSpawnTarget(command,args))` and subscribes `onData` (prompt/idle/error/done patterns → `needs_attention`/resumable-done, unchanged) **and** `onExit`. The authoritative terminal transition derives from **node-pty's exit event**: `exitCode===0 && !signal → done`, non-zero or a signal → `error` — never a `Write-Host`/`echo` sentinel. node-pty flushes all stdout to `onData` before `onExit` fires (Windows: the conout socket's `'close'` event), so the full stream (banner token, done marker) is observed first. No `supervisor.write`, no shell, no quoting, no PSReadLine.
+- **`.cmd`/`.bat` on Windows** — `resolveSpawnTarget(command,args)`: a Windows `.cmd`/`.bat` shim (how npm installs `claude.cmd`/`codex.cmd`/`gemini.cmd`/`cursor-agent.cmd`) is a batch SCRIPT, not an executable image, so `CreateProcess` cannot spawn it directly; it is run via **`cmd.exe /d /s /c <shim> <args…>`** (`/d` no AutoRun, `/s` standard quote handling, `/c` run-then-exit) — `cmd`, minimal, **NOT** powershell, so no PSReadLine is ever engaged. A real `.exe` (or any POSIX executable) is spawned directly.
+- **Executable resolution (the actual missing piece for bare names).** node-pty's ConPTY `startProcess` requires a file that resolves **with** its extension (it uses `SearchPath`, which does **not** apply `PATHEXT`), so a bare `node` throws `File not found`. The orchestrator therefore resolves a real adapter's command to a concrete path via `resolveExecutable` (the former `resolveOnPath`, now exported; `where.exe`/`which`, PATHEXT-aware, run under **Node**) before the spawn — `node`→`node.exe`, `claude`→`claude.cmd` — and the adapter then wraps a resolved `.cmd`/`.bat` via `cmd.exe`. Best-effort: an unresolved command falls back to the bare name (surfaces as `error`). The **mock** adapter sidesteps resolution entirely by spawning `process.execPath` (absolute node, always exists) directly — maximally robust on the runner.
+- **Mock + generic + named + orchestrator + host-integration all use this one direct-spawn path.** Mock → `process.execPath` + `[<fake-cli.mjs>, "--file", …]`; generic → user command (resolved) directly; named presets → resolved `{file,args}` (`.cmd` via cmd.exe); the orchestrator's real-adapter dispatch and the host-integration/host-lifecycle test agents all route through `launchTerminalAdapter`. The orchestrator now persists the **authoritative** exit code from the exit event (`session.exited`/`endSession`), falling back to the status mapping only when `done` was inferred from a mid-run done pattern before the exit arrived.
+- **P07 lifecycle UNCHANGED.** `apps/host/src/lifecycle.ts` setup/teardown still run as short NON-INTERACTIVE shell commands (`spawn({command})` + `buildExitLine` exit-sentinel via `scanOutput`) — they have no single long-lived process to listen on and the ordering test (setup-before-agent / teardown-after-session) must stay intact. `buildExitLine`/`buildLaunchLine`/`EXIT_SENTINEL` remain exported for that shell path and its unit tests (coverage preserved).
+
+## Why this is robust on the GH runner
+
+The agent **is** the PTY's own process: its stdout writes straight to the ConPTY — the identical pattern the `@swarm/pty-supervisor` test already passes with on windows CI. No intermediate shell must forward a grandchild's stdout (the chain that produced zero output), no shell command-line quoting and no PSReadLine line editor are in the path, and the done/error decision comes from node-pty's authoritative process-exit event rather than a string that has to survive shell→ConPTY forwarding. The remaining Windows-specific hazards are handled by construction: bare names are resolved with their extension (ConPTY `SearchPath` has no PATHEXT), and `.cmd`/`.bat` shims (non-spawnable images) run via minimal `cmd.exe`.
+
+## Files changed
+- `packages/pty-supervisor/src/index.ts` — `spawnProcess` + `onExit`/`PtyExit` + `ProcessSpawnOptions`; optional `PtySession.shell`; shared `register()`.
+- `packages/agent-adapters/src/terminal-adapter.ts` — direct-spawn `launchTerminalAdapter` (onExit-authoritative) + `resolveSpawnTarget` (`.cmd`/`.bat` → cmd.exe); `PtyHost` widened to `spawnProcess`/`onExit`; `onExit` option; docs.
+- `packages/agent-adapters/src/mock-adapter.ts` — spawn `process.execPath` directly; forward `onExit`.
+- `packages/agent-adapters/src/presets.ts` — export `resolveExecutable` (was `resolveOnPath`) for orchestrator pre-spawn resolution; doc.
+- `packages/agent-adapters/src/status.ts` — `EXIT_SENTINEL` doc: now the P07 lifecycle shell mechanism, not the agent launch.
+- `apps/host/src/orchestrator.ts` — resolve real-adapter command to a concrete path before the direct spawn; record + persist node-pty's authoritative exit code.
+
+## Verification (this Windows host; the GH-runner failure does not reproduce locally — the mock test passes locally either way)
+- `bun run lint` (biome, 138 files) → clean.
+- `bunx turbo run typecheck build test --force` (42 tasks, all packages, cache-disabled) run **2× consecutively → 2/2 full-tree green (42/42 each, 0 fail)**.
+  - `@swarm/agent-adapters` → 39 pass / 0 fail (incl. `mock adapter integration … running→done`; isolated re-run 5 pass / 0 fail).
+  - `@swarm/host` → 12 pass / 0 fail (host-integration: 3 parallel mock agents + 1 tRPC `generic` agent, P01/P02/P03/P04/P10/P11; host-lifecycle: real `generic` dispatch + P07 setup-before / teardown-after, ordering intact).
+  - `@swarm/pty-supervisor` integration (powershell + cmd interactive-spawn probe) → PASS (interactive `spawn` path unbroken).
+- Banned-token scan (RUBRIC §6.1 pattern) over `apps packages docs` → clean (0 matches).
+- Per-package deps only (no new third-party deps; `spawnProcess`/`onExit` use the existing `@homebridge/node-pty-prebuilt-multiarch`). Did not commit/push.

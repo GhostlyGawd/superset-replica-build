@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import type { ShellKind } from "@swarm/pty-supervisor";
+import type { PtyExit, ShellKind } from "@swarm/pty-supervisor";
 import type { PtyId, WorkspaceId } from "@swarm/shared";
 import { MOCK_DEFAULT_FILENAME, MOCK_DONE_MARKER } from "./mock-protocol.ts";
 import type { AgentStatus, StatusDetection } from "./status.ts";
@@ -57,6 +57,8 @@ export interface MockAgentOptions {
   readonly workMs?: number;
   readonly onData?: (chunk: string) => void;
   readonly onStatus?: (status: AgentStatus) => void;
+  /** The fake CLI's authoritative exit (from node-pty's exit event). */
+  readonly onExit?: (exit: PtyExit) => void;
 }
 
 export interface MockAgentHandle extends TerminalHandle {
@@ -79,16 +81,20 @@ export function launchMockAgent(options: MockAgentOptions): MockAgentHandle {
   const fileName = options.fileName ?? MOCK_DEFAULT_FILENAME;
   const workMs = options.workMs ?? 600;
   const outputFile = `${options.cwd.replace(/\\/g, "/")}/${fileName}`;
+  // Spawn THIS Node (`process.execPath`, an absolute path that always exists) directly
+  // in the PTY running the fake CLI — no PATH lookup, no shell. Its stdout IS the
+  // ConPTY stream and its exit code is authoritative (the windows-latest fix).
   const handle = launchTerminalAdapter({
     supervisor: options.supervisor,
     workspaceId: options.workspaceId,
-    command: "node",
+    command: process.execPath,
     args: [fakeCliPath(), "--file", fileName, "--work-ms", String(workMs)],
     cwd: options.cwd,
     shell: options.shell,
     detection: MOCK_DETECTION,
     onData: options.onData,
     onStatus: options.onStatus,
+    onExit: options.onExit,
   });
   return {
     ...handle,

@@ -94,8 +94,11 @@ function looksAbsolute(line: string): boolean {
 
 /**
  * Resolve a command to a concrete executable path, or `undefined` if not found.
- * Never throws — graceful degradation is the contract (the caller maps `undefined`
- * to `not_found`).
+ * Never throws — graceful degradation is the contract. Used both by `detectAdapter`
+ * (maps `undefined` → `not_found`) and by the orchestrator to resolve a named
+ * preset's bare CLI name to a real path before a DIRECT PTY spawn, so a Windows
+ * `.cmd`/`.bat` shim is visible to the terminal adapter (which then runs it via
+ * `cmd.exe`); `CreateProcess` cannot spawn a `.cmd` directly.
  *
  * 1. If `command` is already an absolute path that exists on disk, return it
  *    verbatim (a user may configure a full path to a CLI). This also makes
@@ -108,7 +111,7 @@ function looksAbsolute(line: string): boolean {
  *    for a hit), and prefer one that exists on disk. A non-zero exit with no usable
  *    path yields `undefined` (⇒ not found). Any `.exe`/`.cmd`/`.bat` shim qualifies.
  */
-async function resolveOnPath(command: string): Promise<string | undefined> {
+export async function resolveExecutable(command: string): Promise<string | undefined> {
   const trimmed = command.trim();
   if (isAbsolute(trimmed) && existsSync(trimmed)) {
     return trimmed;
@@ -147,7 +150,7 @@ export async function detectAdapter(preset: AgentPreset): Promise<AdapterAvailab
     };
   }
   try {
-    const resolvedPath = await resolveOnPath(command);
+    const resolvedPath = await resolveExecutable(command);
     if (resolvedPath === undefined) {
       return {
         adapterId: id,

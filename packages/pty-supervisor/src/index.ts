@@ -47,9 +47,37 @@ export interface PtySpawnOptions {
 export interface PtySession {
   readonly ptyId: PtyId;
   readonly workspaceId: WorkspaceId;
-  readonly shell: ShellKind;
+  /** Shell kind for a shell PTY; absent for a directly-spawned process (spawnProcess). */
+  readonly shell?: ShellKind;
   readonly cols: number;
   readonly rows: number;
+}
+
+/**
+ * Options for spawning an arbitrary executable DIRECTLY in a PTY — no shell wrapper,
+ * no quoting, no PSReadLine. The spawned process's stdout IS the ConPTY stream (the
+ * exact pattern the supervisor's own windows-CI probe proves), so there is no
+ * intermediate shell to forward a child's output. The authoritative exit (code +
+ * signal) is delivered via {@link PtySupervisor.onExit} — never a printed sentinel.
+ */
+export interface ProcessSpawnOptions {
+  readonly workspaceId: WorkspaceId;
+  /** Executable image to run, or a launcher (e.g. `cmd.exe`) for a `.cmd`/`.bat` shim. */
+  readonly file: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly cols: number;
+  readonly rows: number;
+  /** Extra env vars, merged over the inherited process env. */
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+/** A directly-spawned PTY process's exit (node-pty `onExit`) — authoritative. */
+export interface PtyExit {
+  /** Process exit code (0 = clean). */
+  readonly exitCode: number;
+  /** Terminating signal when killed by one (POSIX; not reported on Windows). */
+  readonly signal?: number;
 }
 
 interface ResolvedShell {
@@ -104,6 +132,9 @@ interface PtyEntry {
   readonly session: PtySession;
   readonly pty: IPty;
   readonly listeners: Set<(data: string) => void>;
+  readonly exitListeners: Set<(exit: PtyExit) => void>;
+  /** Set once the process exits, so a late `onExit` subscriber still sees it. */
+  exit: PtyExit | undefined;
   readonly disposables: IDisposable[];
 }
 
@@ -128,22 +159,78 @@ export class PtySupervisor {
       rows: options.rows,
       env: process.env,
     });
-    const ptyId = asId<"PtyId">(`pty_${Date.now()}_${this.counter++}`);
     const session: PtySession = {
-      ptyId,
+      ptyId: this.nextId(),
       workspaceId: options.workspaceId,
       shell: options.shell,
       cols: options.cols,
       rows: options.rows,
     };
-    const listeners = new Set<(data: string) => void>();
-    const dataDisposable = pty.onData((data: string) => {
-      for (const listener of listeners) {
-        listener(data);
-      }
-    });
-    this.entries.set(ptyId, { session, pty, listeners, disposables: [dataDisposable] });
+    this.register(session, pty);
     return session;
+  }
+
+  /**
+   * Spawn an arbitrary executable DIRECTLY in a PTY (no shell wrapper) and register
+   * it. The spawned process's stdout IS the ConPTY stream, and its termination is
+   * surfaced via {@link onExit} with the authoritative exit code — there is no
+   * printed exit sentinel to parse and no shell quoting/PSReadLine in the path. This
+   * is the launch primitive for real agents (terminal adapter); shell PTYs (the
+   * interactive probe + workspace lifecycle commands) still go through {@link spawn}.
+   */
+  spawnProcess(options: ProcessSpawnOptions): PtySession {
+    const pty = nativeSpawn(options.file, [...options.args], {
+      name: "xterm-color",
+      cwd: options.cwd,
+      cols: options.cols,
+      rows: options.rows,
+      env: options.env ? { ...process.env, ...options.env } : process.env,
+    });
+    const session: PtySession = {
+      ptyId: this.nextId(),
+      workspaceId: options.workspaceId,
+      cols: options.cols,
+      rows: options.rows,
+    };
+    this.register(session, pty);
+    return session;
+  }
+
+  private nextId(): PtyId {
+    return asId<"PtyId">(`pty_${Date.now()}_${this.counter++}`);
+  }
+
+  /** Wire a freshly-spawned PTY's data + exit events and register the entry. */
+  private register(session: PtySession, pty: IPty): void {
+    const listeners = new Set<(data: string) => void>();
+    const exitListeners = new Set<(exit: PtyExit) => void>();
+    const entry: PtyEntry = {
+      session,
+      pty,
+      listeners,
+      exitListeners,
+      exit: undefined,
+      disposables: [],
+    };
+    entry.disposables.push(
+      pty.onData((data: string) => {
+        for (const listener of listeners) {
+          listener(data);
+        }
+      }),
+    );
+    // On Windows ConPTY node-pty fires onExit on the conout socket 'close' event,
+    // which is emitted only after all 'data' has been delivered — so the full output
+    // stream is flushed to onData listeners before this exit fires (no lost tail).
+    entry.disposables.push(
+      pty.onExit(({ exitCode, signal }) => {
+        entry.exit = { exitCode, signal };
+        for (const listener of exitListeners) {
+          listener(entry.exit);
+        }
+      }),
+    );
+    this.entries.set(session.ptyId, entry);
   }
 
   /** Write raw bytes/keystrokes to a PTY. */
@@ -157,6 +244,24 @@ export class PtySupervisor {
     entry.listeners.add(listener);
     return () => {
       entry.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * Subscribe to the process's exit (node-pty `onExit`) — the authoritative
+   * done/error signal for a directly-spawned agent. If the process has already
+   * exited, the listener fires immediately with the stored exit. Returns an
+   * unsubscribe function.
+   */
+  onExit(ptyId: PtyId, listener: (exit: PtyExit) => void): () => void {
+    const entry = this.entry(ptyId);
+    if (entry.exit !== undefined) {
+      listener(entry.exit);
+      return () => {};
+    }
+    entry.exitListeners.add(listener);
+    return () => {
+      entry.exitListeners.delete(listener);
     };
   }
 
@@ -176,6 +281,7 @@ export class PtySupervisor {
       disposable.dispose();
     }
     entry.listeners.clear();
+    entry.exitListeners.clear();
     this.entries.delete(ptyId);
     return new Promise<void>((resolve) => {
       treeKill(pid, "SIGKILL", () => resolve());

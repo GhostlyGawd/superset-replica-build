@@ -1,4 +1,4 @@
-import type { PtySpawnOptions, PtySupervisor, ShellKind } from "@swarm/pty-supervisor";
+import type { PtyExit, PtySupervisor, ShellKind } from "@swarm/pty-supervisor";
 import type { PtyId, WorkspaceId } from "@swarm/shared";
 import {
   type AgentStatus,
@@ -13,38 +13,55 @@ import {
 /**
  * Universal terminal adapter (spec §2, P03 "universal compatibility"): launch
  * ANY CLI agent in a PTY via `@swarm/pty-supervisor`, stream its output, and
- * infer an `AgentStatus` from output activity + exit code. Zero config — a
- * command + args is enough; named presets just supply tuned `StatusDetection`.
+ * infer an `AgentStatus` from output activity + the process's own exit. Zero
+ * config — a command + args is enough; named presets just supply tuned detection.
  *
- * The supervisor spawns the *shell* NON-INTERACTIVELY with the composed launch
- * line as its `-Command`/`-c`/`/c` argument (so a PTY is still allocated for TUI
- * agents, but the command is run as the shell's own process — never *typed* into
- * an interactive prompt). On Windows this is what makes launches robust: a long,
- * absolute-path command never reaches the PSReadLine line editor, so it cannot be
- * re-rendered/word-wrapped into a corrupted, never-executed input (the GH
- * `windows-latest` failure mode). This module only needs the supervisor's TYPE —
- * node-pty is never imported here and the bundle stays clean. The supervisor runs
- * under Node (ADR-0007a), so any caller wiring a real PTY (tests, the host) must
- * do so from a Node process, not Bun.
+ * The agent process is spawned DIRECTLY in the PTY (`supervisor.spawnProcess`):
+ * NO shell wrapper, no quoting, no PSReadLine, no printed exit sentinel. Its stdout
+ * IS the ConPTY stream — the exact pattern the supervisor's own windows-CI probe
+ * proves green — so on the GH `windows-latest` runner there is no intermediate
+ * shell that must forward a child's stdout (the chain that yielded zero output) and
+ * no console line editor that could re-render/word-wrap a long launch line. The
+ * authoritative done/error transition comes from node-pty's exit event (exit code),
+ * not from parsing a `Write-Host`/`echo` sentinel out of the stream. This module
+ * only needs the supervisor's TYPE — node-pty is never imported here and the bundle
+ * stays clean. The supervisor runs under Node (ADR-0007a), so any caller wiring a
+ * real PTY (tests, the host) must do so from a Node process, not Bun.
+ *
+ * (`buildExitLine`/`buildLaunchLine` below remain exported: the workspace lifecycle
+ * runner in `apps/host` still composes shell command lines with an exit-sentinel
+ * echo for its short `setup`/`teardown` commands — P07 — which legitimately run on
+ * a shell, not as a long-lived directly-spawned agent.)
  */
 
 /** Minimal structural view of the supervisor methods this adapter uses. */
-export type PtyHost = Pick<PtySupervisor, "spawn" | "onData" | "write" | "kill">;
+export type PtyHost = Pick<
+  PtySupervisor,
+  "spawn" | "spawnProcess" | "onData" | "onExit" | "write" | "kill"
+>;
 
 export interface TerminalLaunchOptions {
   readonly supervisor: PtyHost;
   readonly workspaceId: WorkspaceId;
+  /** Executable to spawn directly (an image like `node`, or a resolved CLI path). */
   readonly command: string;
   readonly args?: readonly string[];
   readonly cwd: string;
+  /**
+   * Accepted for API compatibility but unused by the direct spawn: the agent is its
+   * own PTY process, with no shell. (Shell selection still matters for the workspace
+   * lifecycle runner, which is a separate path.)
+   */
   readonly shell?: ShellKind;
   readonly cols?: number;
   readonly rows?: number;
-  /** Extra env vars, injected on the launch line (the supervisor inherits process env). */
+  /** Extra env vars, merged over process env in the spawned process. */
   readonly env?: Readonly<Record<string, string>>;
   readonly detection?: StatusDetection;
   readonly onData?: (chunk: string) => void;
   readonly onStatus?: (status: AgentStatus) => void;
+  /** The process's authoritative exit (code + signal) from node-pty's exit event. */
+  readonly onExit?: (exit: PtyExit) => void;
 }
 
 export interface TerminalHandle {
@@ -128,36 +145,63 @@ export function buildLaunchLine(
   }
 }
 
-// Carry a small tail between chunks so an exit sentinel split across two PTY
-// reads is still detected, without re-matching stale prompts from far back.
+/**
+ * Resolve the `{file, args}` actually handed to node-pty for a DIRECT spawn.
+ *
+ * On Windows a `.cmd`/`.bat` shim (how npm installs CLIs: `claude.cmd`, `codex.cmd`,
+ * `gemini.cmd`, `cursor-agent.cmd`) is a batch SCRIPT, not an executable image, so
+ * `CreateProcess` (what node-pty calls) cannot spawn it directly. Such a shim is run
+ * through `cmd.exe` with the minimal, non-interactive flags `/d /s /c`:
+ *   - `/d` skip any AutoRun registry command,
+ *   - `/s` use standard quote handling for the quoted shim path + args,
+ *   - `/c` run the command, then exit.
+ * This is `cmd`, NOT powershell — there is no PSReadLine line editor, so even a long
+ * absolute launch line cannot be re-rendered/word-wrapped (the windows-latest stall).
+ *
+ * A real `.exe` (or any executable on POSIX, and a bare name like `node` that
+ * `CreateProcess` resolves on PATH) is spawned DIRECTLY: its stdout IS the ConPTY
+ * stream, with no intermediate process forwarding it.
+ */
+export function resolveSpawnTarget(
+  command: string,
+  args: readonly string[],
+): { readonly file: string; readonly args: string[] } {
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+    return { file: "cmd.exe", args: ["/d", "/s", "/c", command, ...args] };
+  }
+  return { file: command, args: [...args] };
+}
+
+// Carry a small tail between chunks so a multi-line prompt/error pattern split
+// across two PTY reads is still detected, without re-matching stale text far back.
 const CARRY = 96;
 
 /**
- * Launch `command` in a PTY shell and begin inferring status. Returns
- * immediately with a handle; status flows through `onStatus`. The status starts
- * at `running` (the act of launching is activity) and ends at `done`/`error`
- * once the exit sentinel is seen; quiet stretches flip it to `needs_attention`.
+ * Launch `command` DIRECTLY in a PTY (no shell) and begin inferring status. Returns
+ * immediately with a handle; status flows through `onStatus`. The status starts at
+ * `running` (the act of launching is activity) and ends at `done`/`error` from the
+ * process's OWN exit (node-pty's exit event: exit code 0 → `done`, non-zero or a
+ * signal → `error`). Quiet stretches flip it to `needs_attention`; a prompt pattern
+ * in the output flips it to `needs_attention` too (both unchanged). Mid-run done
+ * patterns are honored but non-terminal (a turn-based agent can resume).
  *
- * The composed launch line (env assignments + quoted command + exit-sentinel echo)
- * is handed to the supervisor as a NON-INTERACTIVE shell invocation — the shell
- * runs it as its own process inside the PTY and exits. Nothing is typed into an
- * interactive prompt, so on Windows the PSReadLine line editor never re-renders or
- * word-wraps the (often long, absolute-path) command line; the command always runs
- * exactly as composed. A PTY is still allocated, so TUI agents keep their terminal.
+ * The executable is spawned via `supervisor.spawnProcess` — its stdout is the
+ * ConPTY stream itself. There is no shell, no command-line quoting, no PSReadLine,
+ * and no printed exit sentinel: the windows-latest "shell forwards a child's stdout
+ * → zero output, then timeout" chain is eliminated by construction.
  */
 export function launchTerminalAdapter(options: TerminalLaunchOptions): TerminalHandle {
   const detection = options.detection ?? DEFAULT_DETECTION;
-  const shell = options.shell ?? defaultShell();
-  const launchLine = buildLaunchLine(shell, options.command, options.args ?? [], options.env ?? {});
-  const spawnOptions: PtySpawnOptions = {
+  const target = resolveSpawnTarget(options.command, options.args ?? []);
+  const session = options.supervisor.spawnProcess({
     workspaceId: options.workspaceId,
-    shell,
+    file: target.file,
+    args: target.args,
     cwd: options.cwd,
     cols: options.cols ?? 120,
     rows: options.rows ?? 30,
-    command: launchLine,
-  };
-  const session = options.supervisor.spawn(spawnOptions);
+    env: options.env,
+  });
 
   let status: AgentStatus = "running";
   let finished = false;
@@ -188,6 +232,20 @@ export function launchTerminalAdapter(options: TerminalLaunchOptions): TerminalH
     }, detection.idleMs);
   };
 
+  // Authoritative terminal transition: the process's own exit. node-pty flushes all
+  // stdout to onData before this fires (Windows: conout socket 'close'), so the full
+  // stream is observed first. exit 0 → done; non-zero or a signal → error.
+  const unsubscribeExit = options.supervisor.onExit(session.ptyId, (exit) => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    clearIdle();
+    const terminal: AgentStatus = exit.exitCode === 0 && !exit.signal ? "done" : "error";
+    options.onExit?.(exit);
+    emit(terminal);
+  });
+
   const unsubscribe = options.supervisor.onData(session.ptyId, (chunk: string) => {
     options.onData?.(chunk);
     if (finished) {
@@ -207,8 +265,6 @@ export function launchTerminalAdapter(options: TerminalLaunchOptions): TerminalH
   });
 
   options.onStatus?.(status);
-  // No write: the launch line is the shell's own `-Command`/`-c`/`/c` argument
-  // (see spawnOptions.command above), not keyboard input into an interactive prompt.
   armIdle();
 
   return {
@@ -216,6 +272,7 @@ export function launchTerminalAdapter(options: TerminalLaunchOptions): TerminalH
     status: () => status,
     stop: async () => {
       clearIdle();
+      unsubscribeExit();
       unsubscribe();
       await options.supervisor.kill(session.ptyId);
     },

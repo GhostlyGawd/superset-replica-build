@@ -14,13 +14,16 @@ export type AgentStatus = Extract<
 >;
 
 /**
- * Marker the terminal adapter appends to the launched command line so the exit
- * code surfaces in the PTY stream (the supervisor spawns a shell, not the agent
- * process directly, so there is no process-exit event to listen on). The launch
- * line is run non-interactively (it is the shell's own argument, never typed at a
- * prompt), so it is not echoed back. The exit regex still requires digits — so
- * only the *executed* form (`:0`, `:1`, …), never an unexpanded literal
- * (`:$LASTEXITCODE` / `:%ERRORLEVEL%` / `:$?`), is ever treated as a real exit.
+ * Marker appended to a SHELL command line so an exit code surfaces in the PTY
+ * stream. The agent terminal adapter no longer uses this — it spawns the agent
+ * process DIRECTLY and takes the authoritative exit code from node-pty's exit
+ * event. The sentinel remains the mechanism for the workspace lifecycle runner
+ * (`apps/host` P07 setup/teardown), which legitimately runs short commands on a
+ * shell and has no single process-exit event to listen on. The command line is run
+ * non-interactively (the shell's own argument, never typed at a prompt), so it is
+ * not echoed back. The exit regex still requires digits — so only the *executed*
+ * form (`:0`, `:1`, …), never an unexpanded literal (`:$LASTEXITCODE` /
+ * `:%ERRORLEVEL%` / `:$?`), is ever treated as a real exit.
  */
 export const EXIT_SENTINEL = "__SWARM_EXIT__";
 const EXIT_RE = /__SWARM_EXIT__:(-?\d+)/;

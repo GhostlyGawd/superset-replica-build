@@ -8,6 +8,7 @@ import {
   isMockAdapterEnabled,
   launchMockAgent,
   launchTerminalAdapter,
+  resolveExecutable,
 } from "@swarm/agent-adapters";
 import type { SwarmConfig } from "@swarm/config";
 import type { Project, Session, Workspace } from "@swarm/db";
@@ -111,6 +112,8 @@ interface RunContext {
   chain: Promise<void>;
   startedEmitted: boolean;
   finished: boolean;
+  /** Authoritative exit code from node-pty's exit event, once the agent process exits. */
+  exitCode: number | undefined;
   resolveDone: (value: { status: AgentStatus; exitCode: number }) => void;
 }
 
@@ -313,6 +316,7 @@ export class Orchestrator {
       chain: Promise.resolve(),
       startedEmitted: false,
       finished: false,
+      exitCode: undefined,
       resolveDone,
     };
 
@@ -332,7 +336,9 @@ export class Orchestrator {
     }
 
     // Both `launchMockAgent` and `launchTerminalAdapter` fire onStatus("running")
-    // synchronously during launch, so the context above is fully built first.
+    // synchronously during launch, so the context above is fully built first. The
+    // exit code is taken from node-pty's exit event (onExit), the authoritative
+    // source — recorded here and used when the done/error status is persisted.
     let handle: { stop(): Promise<void> };
     let outputFile: string | undefined;
     if (plan.kind === "mock") {
@@ -345,20 +351,34 @@ export class Orchestrator {
         workMs: options.workMs,
         fileName: options.fileName,
         onStatus: (status) => this.onStatus(ctx, status),
+        onExit: (exit) => {
+          ctx.exitCode = exit.exitCode;
+        },
       });
       handle = mock;
       outputFile = mock.outputFile;
     } else {
+      // Resolve the command to a concrete executable path before the DIRECT spawn.
+      // node-pty's ConPTY `startProcess` requires an executable that resolves WITH
+      // its extension (it does not apply PATHEXT), so a bare name like `node` or a
+      // named preset's `claude` must be resolved to `node.exe` / `claude.cmd` first.
+      // `resolveExecutable` (where.exe/which, PATHEXT-aware, run under Node) returns
+      // the real file; the adapter then runs a `.cmd`/`.bat` shim via cmd.exe.
+      // Best-effort: if unresolved, fall back to the bare command (surfaces as error).
+      const command = (await resolveExecutable(plan.command)) ?? plan.command;
       handle = launchTerminalAdapter({
         supervisor: this.supervisor,
         workspaceId: workspace.id,
-        command: plan.command,
+        command,
         args: plan.args,
         cwd: cwdOs,
         shell: options.shell,
         detection: plan.detection,
         env: plan.env,
         onStatus: (status) => this.onStatus(ctx, status),
+        onExit: (exit) => {
+          ctx.exitCode = exit.exitCode;
+        },
       });
     }
 
@@ -434,7 +454,10 @@ export class Orchestrator {
 
     if ((status === "done" || status === "error") && !ctx.finished) {
       ctx.finished = true;
-      const exitCode = status === "done" ? 0 : 1;
+      // Prefer node-pty's authoritative exit code; fall back to the status mapping
+      // (e.g. when `done` was inferred from a mid-run done pattern before the exit
+      // event arrived, or for the mock whose terminal state can precede its exit).
+      const exitCode = ctx.exitCode ?? (status === "done" ? 0 : 1);
       ctx.chain = ctx.chain
         .then(() => this.store.setWorkspaceStatus(ctx.workspace.id, status))
         .then(() =>
