@@ -6,6 +6,14 @@ this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+### Added
+- **Host engine — PTY supervisor (Phase 2 wave 1).** `packages/pty-supervisor`: real `PtySupervisor` (spawn/write/onData/resize/kill, per-session PID tracking + tree-kill) over `@homebridge/node-pty-prebuilt-multiarch`, with a real-PTY integration test (spawns PowerShell + cmd, asserts streamed output and clean process-tree termination). CI gains `setup-node`.
+- Completed `@swarm/api` tRPC surface to all 13 routers of architecture §3.1 (sessions, presets, ports, notifications, settings, host, auth + completed config/diffs/workspaces/agents/terminal).
+- `SwarmConfig` (`packages/config`) reshaped to ordered `Command[]` for setup/teardown/run with per-OS shell support (PowerShell/cmd/bash/sh/zsh/wsl) + per-field before/after overlay + zero-dep validator (9 tests).
+
+### Changed
+- **ADR-0007a:** the PTY layer / host engine runs under **Node**, not Bun — Bun tears down the ConPTY `net.Socket` on Windows. Validated node-pty + the multiarch fallback on Node 24 across the OS matrix.
+
 ## [0.2.0] - 2026-06-14
 
 Phase 1 — Brand & Design System. Independent anti-slop design gate passed (Critic 5/5 §6.3, 0 fail); CI green on Windows + macOS + Linux.

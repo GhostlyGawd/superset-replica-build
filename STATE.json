@@ -41,7 +41,7 @@
     "api": "tRPC over Hono",
     "db": "PGlite (embedded Postgres, WASM) via Drizzle ORM; real Postgres optional",
     "sync": "self-hosted WebSocket + PGlite-backed append-only event log + resume tokens",
-    "pty": "node-pty (ConPTY on Windows) [RISK: Node24 prebuilds — Phase 2 validation gate]",
+    "pty": "@homebridge/node-pty-prebuilt-multiarch (ConPTY on Windows; prebuilds win/mac/linux incl Node24 ABI, no compiler) — VALIDATED ADR-0007a; PTY layer/host engine runs under NODE not Bun (Bun tears down ConPTY net.Socket on Windows); tree-kill verified killing process trees",
     "tree_kill": "tree-kill (taskkill /T on Windows)",
     "desktop_shell": "Electron + electron-builder (NSIS)",
     "mobile": "PWA-first (service worker, Web Push/VAPID); Capacitor optional/deferred",
@@ -54,8 +54,7 @@
     "Phase 2 waves 2+: git-worktree engine, agent adapters (claude/codex/cursor/gemini/generic), Drizzle+PGlite persistence, Hono+tRPC secure API, WS event-log sync; integration tests prove parallel isolated agents stream status; Critic gate -> v0.3.0"
   ],
   "critic_followups_for_phase2": [
-    "packages/api AppRouter implements 6 of 13 routers from architecture §3.1 — add sessions/presets/ports/notifications/settings/host/auth; complete config/diffs; fix the 'full tRPC surface' comment to be accurate",
-    "packages/config SwarmConfig must match recon §6 / architecture §2: array-of-commands for setup/teardown/run + per-field before/after overlay (not single command + flat overlay)",
+    "[DONE wave-1] @swarm/api completed to all 13 routers of architecture §3.1; SwarmConfig now Command[] arrays + per-OS shells + per-field overlay (9 tests)",
     "[phase-1 a11y nit, non-blocking] extend tokens.test.ts to assert fg-subtle AA on raised+overlay surfaces (currently only surface); fold into Phase 6 a11y audit if it forces a token tweak"
   ],
   "blocked": [],

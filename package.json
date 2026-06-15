@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "workspaces": ["apps/*", "packages/*"],
+  "trustedDependencies": ["@homebridge/node-pty-prebuilt-multiarch"],
   "scripts": {
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",

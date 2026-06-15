@@ -48,6 +48,12 @@ Format: ID · date · status · context · decision · consequences.
 - **RISK:** `node-pty` native prebuilds may not exist for Node 24. **Phase 2 opens with a validation gate**: confirm node-pty loads on this Windows host; if not, fall back to `@homebridge/node-pty-prebuilt-multiarch` or pin the engine to Node 22 LTS (documented).
 - **Consequences:** Process supervision is correct on Windows (no SIGTERM tree semantics assumed).
 
+## ADR-0007a — PTY validation gate outcome: package + runtime pinned
+- **Date:** 2026-06-14 · **Status:** Accepted (resolves the ADR-0007 RISK flag)
+- **Context:** Phase 2 opened with the ADR-0007 load-validation gate (Windows, Node 24). Findings: (1) official `node-pty@1.1.0` is N-API and its **bundled** win/mac prebuilds load cleanly on Node 24 — the feared "no Node-24 prebuild" does **not** occur — but it ships **no Linux prebuild** (compiles via node-gyp). (2) **Decisive blocker not in ADR-0007:** node-pty **cannot run under Bun on Windows** — its ConPTY data pipe rides a `net.Socket` that Bun tears down (`ERR_SOCKET_CLOSED`); reproduced identically on every node-pty fork. See `evidence/phase-2/pty-validation.md`.
+- **Decision:** Use **`@homebridge/node-pty-prebuilt-multiarch`** (ships prebuilds for win32-x64 + darwin + linux-x64/musl incl. the Node 24 ABI → no compiler on any CI runner) with **`tree-kill`**. Run the `pty-supervisor` **under Node 24, never Bun** (it already lives in a crashable child process per architecture §1/§5). Add the package to Bun **`trustedDependencies`** so win/mac prebuilds download at install (Linux is offline-bundled); add `actions/setup-node@v4` (node 24) to CI so the PTY integration test drives shells through Node.
+- **Consequences:** PTYs spawn/stream/resize/tree-kill correctly on Windows/macOS/Linux with no build toolchain in CI. Monorepo stays on Bun for install/build/most tests; only the PTY-touching process is pinned to Node. Watch items: `prebuild-install` is deprecated upstream (still functional; matrix actively maintained), and win/mac prebuilds are a network download at install. Re-evaluate official `node-pty` if/when it bundles a Linux prebuild.
+
 ## ADR-0008 — OSS-only stack & assets
 - **Date:** 2026-06-14 · **Status:** Accepted
 - **Decision:** Turborepo + Vite + Biome + tRPC + Hono + Drizzle + React + Tailwind. Fonts via **Fontsource**, icons via **Lucide/Phosphor** — all MIT/Apache/OSS. No paid SaaS, fonts, icons, or mandatory API keys (spec §0.7). License audit in Phase 6.

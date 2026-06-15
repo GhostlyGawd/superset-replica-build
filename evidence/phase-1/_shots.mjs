@@ -1,8 +1,8 @@
 // Throwaway evidence tooling: capture full-page Playwright screenshots of the
 // Grove showcase at desktop + phone, in dark + light themes.
 // Not shipped code. Run via: PW_HOME=<temp playwright install> bun evidence/phase-1/_shots.mjs
-import { createRequire } from "node:module";
 import { mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
