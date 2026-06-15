@@ -1,24 +1,24 @@
+import { type ChildProcess, type StdioOptions, spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  DEFAULT_DETECTION,
-  type PtyHost,
-  buildExitLine,
-  defaultShell,
-  scanOutput,
-} from "@swarm/agent-adapters";
 import { type Command, ENV_VARS, type Shell, type SwarmConfig, parseConfig } from "@swarm/config";
 import type { DomainEvent } from "@swarm/core-engine";
-import type { ShellKind } from "@swarm/pty-supervisor";
 import type { WorkspaceId } from "@swarm/shared";
 
 /**
  * Workspace lifecycle (P07): load a project's `.grove/config.json` and EXECUTE its
  * `setup` commands before an agent launches and `teardown` after the session ends.
  * Commands are real cross-platform shell lines (a bare string runs on each OS's
- * default shell; a `{ windows, posix }` object picks a per-OS line + shell), run on
- * the PTY/shell layer with the workspace env vars injected (architecture §2, §5,
- * ADR-0004). Their output is streamed as bounded `workspace.lifecycle` events.
+ * default shell; a `{ windows, posix }` object picks a per-OS line + shell) with the
+ * workspace env vars injected (architecture §2, §5, ADR-0004). Their output is
+ * streamed as bounded `workspace.lifecycle` events.
+ *
+ * These are batch setup/teardown commands — they need no TTY — so each runs through
+ * plain `node:child_process` `spawn` on a NON-interactive per-OS shell
+ * (`cmd.exe /d /s /c "<line>"` on Windows, `sh -c "<line>"` on POSIX), with stdio
+ * piped and the exit code taken from the child's `close` event. This deliberately
+ * avoids the PTY/ConPTY + exit-sentinel path the agent launch uses: a ConPTY child
+ * was the windows-latest stall, and a batch command gains nothing from a TTY.
  */
 
 /** Committed workspace config path, relative to a project repo root. */
@@ -26,13 +26,23 @@ export const GROVE_CONFIG_PATH = join(".grove", "config.json");
 
 /** Largest output tail carried in a lifecycle event (keeps the durable log lean). */
 const OUTPUT_TAIL = 2_000;
-const CARRY = 96;
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
+
+/** Non-interactive PowerShell flags: run the body and exit, no profile, no prompt. */
+const POWERSHELL_ARGS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"] as const;
+
+/** Pipe stdout + stderr, ignore stdin (a batch command reads nothing). */
+const STDIO: StdioOptions = ["ignore", "pipe", "pipe"];
 
 type OsFamily = "windows" | "posix";
 
 function osFamily(): OsFamily {
   return process.platform === "win32" ? "windows" : "posix";
+}
+
+/** The OS's default shell when a command pins none. */
+function defaultShell(): Shell {
+  return process.platform === "win32" ? "cmd" : "sh";
 }
 
 /**
@@ -76,15 +86,63 @@ export function resolveCommand(
   return typeof branch === "string" ? { run: branch } : { run: branch.run, shell: branch.shell };
 }
 
-/** Map a config {@link Shell} to a PTY {@link ShellKind} (default = OS default shell). */
-function toShellKind(shell: Shell | undefined): ShellKind {
+/** Tree-kill a process and all of its descendants. Best-effort; never throws. */
+function killChildTree(pid: number | undefined): void {
+  if (pid === undefined) {
+    return;
+  }
+  try {
+    if (process.platform === "win32") {
+      // /t = whole tree, /f = force; frees any grandchild (node/git) the shell spawned.
+      spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore" });
+    } else {
+      process.kill(pid, "SIGKILL");
+    }
+  } catch {
+    // The process may already be gone; killing is best-effort.
+  }
+}
+
+/**
+ * Spawn one lifecycle command line on a NON-interactive shell — no PTY. The shell is
+ * the OS default (`cmd` on Windows, `sh` on POSIX) unless the command pins one. On
+ * Windows the line is handed to `cmd.exe /d /s /c "<line>"` VERBATIM so cmd (not
+ * Node's CommandLineToArgvW escaper) parses it — `/s` strips the wrapping quotes and
+ * runs the remainder as-is. Env vars are injected via the spawn `env` option (no
+ * shell `set`/`$env:` prelude), inherited by any grandchild the shell launches.
+ */
+function spawnLifecycleCommand(
+  shell: Shell,
+  line: string,
+  cwd: string,
+  extraEnv: Readonly<Record<string, string>>,
+): ChildProcess {
+  const options = {
+    cwd,
+    env: { ...process.env, ...extraEnv },
+    stdio: STDIO,
+    windowsHide: true,
+  };
   switch (shell) {
-    case undefined:
-      return defaultShell();
-    case "sh":
-      return "bash";
+    case "cmd":
+      return spawn("cmd.exe", ["/d", "/s", "/c", `"${line}"`], {
+        ...options,
+        windowsVerbatimArguments: true,
+      });
+    case "pwsh":
+      return spawn(
+        process.platform === "win32" ? "pwsh.exe" : "pwsh",
+        [...POWERSHELL_ARGS, line],
+        options,
+      );
+    case "powershell":
+      return spawn("powershell.exe", [...POWERSHELL_ARGS, line], options);
+    case "wsl":
+      return spawn("wsl.exe", ["bash", "-c", line], options);
     default:
-      return shell;
+      // bash | sh | zsh — the body is a single `-c` argument (Node escapes it for
+      // the standard Windows/POSIX arg parser these shells use).
+      return spawn(shell, ["-c", line], options);
   }
 }
 
@@ -94,69 +152,54 @@ interface RunResult {
 }
 
 /**
- * Run a raw shell command line to completion on a PTY, streaming its output and
- * resolving with the exit code derived from the appended exit sentinel (the shell
- * is what we spawn, so the code surfaces in the stream, not a process event).
- *
- * The command (env assignments + the user line + exit-sentinel echo) is run
- * NON-INTERACTIVELY as the shell's own `-Command`/`-c`/`/c` argument — never typed
- * into an interactive prompt — so a long line never hits the Windows PSReadLine
- * line editor (the GH-runner re-render/word-wrap corruption that stalls launches).
+ * Run one shell command line to completion via `node:child_process`, capturing
+ * stdout + stderr and resolving on the child's `close` event with its real exit
+ * code. Bounded by `timeoutMs`: an overrunning command is tree-killed and reported
+ * as a timeout (124) so a lifecycle phase can never hang the worker.
  */
-function runShellLine(
-  supervisor: PtyHost,
-  opts: {
-    readonly workspaceId: WorkspaceId;
-    readonly cwd: string;
-    readonly shell: ShellKind;
-    readonly line: string;
-    readonly env: Readonly<Record<string, string>>;
-    readonly timeoutMs?: number;
-    readonly onData?: (chunk: string) => void;
-  },
-): Promise<RunResult> {
+function runCommandLine(opts: {
+  readonly cwd: string;
+  readonly shell: Shell;
+  readonly line: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly timeoutMs?: number;
+  readonly onData?: (chunk: string) => void;
+}): Promise<RunResult> {
   return new Promise<RunResult>((resolve) => {
-    const session = supervisor.spawn({
-      workspaceId: opts.workspaceId,
-      shell: opts.shell,
-      cwd: opts.cwd,
-      cols: 120,
-      rows: 30,
-      command: buildExitLine(opts.shell, opts.line, opts.env),
-    });
-    let carry = "";
+    const child = spawnLifecycleCommand(opts.shell, opts.line, opts.cwd, opts.env);
     let captured = "";
     let settled = false;
-    let unsubscribe: () => void = () => {};
+    const onChunk = (chunk: string): void => {
+      opts.onData?.(chunk);
+      captured += chunk;
+    };
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", onChunk);
+    child.stderr?.on("data", onChunk);
+
     const finish = (exitCode: number): void => {
       if (settled) {
         return;
       }
       settled = true;
       clearTimeout(timer);
-      unsubscribe();
-      void supervisor.kill(session.ptyId).then(() => {
-        resolve({ exitCode, output: captured.slice(-OUTPUT_TAIL) });
-      });
+      resolve({ exitCode, output: captured.slice(-OUTPUT_TAIL) });
     };
-    const timer = setTimeout(() => finish(124), opts.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS);
-    unsubscribe = supervisor.onData(session.ptyId, (chunk) => {
-      opts.onData?.(chunk);
-      captured += chunk;
-      const window = carry + chunk;
-      carry = window.slice(-CARRY);
-      const signals = scanOutput(window, DEFAULT_DETECTION);
-      if (signals.sawExit) {
-        finish(signals.exitCode ?? 0);
-      }
+    const timer = setTimeout(() => {
+      killChildTree(child.pid);
+      finish(124);
+    }, opts.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS);
+
+    child.once("close", (code, signal) => finish(code ?? (signal != null ? 1 : 0)));
+    child.once("error", (error) => {
+      onChunk(`lifecycle command failed to spawn: ${(error as Error).message}\n`);
+      finish(127);
     });
-    // The command runs as the shell's own argument (spawn `command` above); no
-    // interactive write, so the Windows line editor never mangles a long line.
   });
 }
 
 export interface LifecyclePhaseOptions {
-  readonly supervisor: PtyHost;
   readonly workspaceId: WorkspaceId;
   /** Worktree (OS-native path) the commands run in. */
   readonly cwd: string;
@@ -193,7 +236,7 @@ export async function runLifecyclePhase(options: LifecyclePhaseOptions): Promise
     if (resolved === null) {
       continue; // command not applicable on this OS family
     }
-    const shell = toShellKind(resolved.shell);
+    const shell = resolved.shell ?? defaultShell();
     await options.append({
       type: "workspace.lifecycle",
       workspaceId: options.workspaceId,
@@ -201,8 +244,7 @@ export async function runLifecyclePhase(options: LifecyclePhaseOptions): Promise
       status: "running",
       command: resolved.run,
     });
-    const result = await runShellLine(options.supervisor, {
-      workspaceId: options.workspaceId,
+    const result = await runCommandLine({
       cwd: options.cwd,
       shell,
       line: resolved.run,

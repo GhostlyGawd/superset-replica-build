@@ -269,3 +269,47 @@ The hook no longer blocks the Bun thread on a synchronous read that depends on t
   - `@swarm/host` → **12 pass / 0 fail, 91 expect() calls** both runs, and the suite **returns promptly** (`Ran 12 tests … [37.93s]` run 1, `[51.57s]` run 2 — well under the 180s timeout, vs the prior 180446ms hang). host-integration (P01/P02/P03/P04/P10/P11) + host-lifecycle (P03 real `generic` dispatch + P07 setup-before / teardown-after) intact. Isolated `bun test` in `apps/host` → 12 pass / 0 fail, 25.38s.
 - Banned-token scan (RUBRIC §6.1 pattern, incl. `unimplemented|stub`) over `apps packages docs` → clean (0 matches).
 - Per-package deps only (new code uses Node builtins: `node:child_process` `spawn`, the Windows `taskkill` builtin, `node:fs/promises` `rm`; no new third-party deps). Did not commit/push.
+
+---
+
+# Phase 2 — `@swarm/host` host-lifecycle suite → EMPTY worker output on windows-latest (final remaining blocker)
+
+**Date:** 2026-06-15 · **Host:** Windows 10 Home build 19045 (x64) · **Toolchain:** Node v24.14.1, Bun 1.3.14 · **Context:** after the `runWorker` bounded-async-spawn fix landed, `@swarm/agent-adapters` and the `@swarm/host` *integration* suite (P01/P02/P04/P10/P11 + P03) both went green on `windows-latest`. The ONLY remaining red was the `@swarm/host` **host-lifecycle** suite: `(fail) … > the lifecycle worker run passed end-to-end` — `expect(out).toContain("WORKER_RESULT=PASS")` got `Received: ""` (EMPTY). The lifecycle worker (`host-lifecycle-worker.ts`, spawned via the shared `runWorker`) produced **no output at all**: it died before emitting any verdict. The integration worker uses the SAME `runWorker` and DID print + pass, so capture works — the lifecycle worker specifically crashed early. Green locally either way → fixed robustly-by-construction, two independent parts.
+
+## Why the output was EMPTY — exit-before-flush on the error path, masking the real crash
+
+Two compounding causes:
+1. **The worker's error path lost its own message.** `main()`'s only failure handler was the bottom `main().then(_, err => { console.log("WORKER_RESULT=FAIL …"); exit(1); })`. On Windows, `process.stdout` to a *pipe* (the worker is spawned `stdio: pipe`) is **asynchronous**; `console.log` buffers and `process.exit(1)` fired in the same tick **truncates the unflushed buffer**. So even when `main()` threw and the handler ran, the FAIL line never reached the parent — the parent saw `""`. (The success path already used `finishWorker`, which awaits the write callback before exiting; the error path did not.)
+2. **What made `main()` throw in the first place — the lifecycle setup ran on the ConPTY/shell path.** `lifecycle.ts`'s `runShellLine` executed each `setup`/`teardown` command through the **PTY supervisor** (`supervisor.spawn({ command: buildExitLine(shell, line, env) })`) — a shell-in-a-ConPTY with an appended exit-sentinel that `scanOutput` parsed for the exit code. This is the SAME shell-wrapped-ConPTY-child pattern that stalled/failed agent launches on the GH `windows-latest` runner. `setup` runs to completion BEFORE the agent launches, so a ConPTY hiccup there threw on the way up through `main()` → empty output. (The integration worker carries no `.grove/config.json`, so it never exercised this path — exactly why only the lifecycle worker died.)
+
+## Fix part 1 — the worker can NEVER again emit empty output
+
+`apps/host/src/host-lifecycle-worker.ts`:
+- **Boot breadcrumb at the very top of `main()`:** `stdout.write("WORKER_BOOT lifecycle\n")` before anything that can throw — proof the worker booted.
+- **Whole `main()` body wrapped in try/catch; EVERY exit routes through `finishWorker`** (flush-verdict → bounded teardown → hard `process.exit`). On ANY throw (config load, worktree, PTY/child spawn, PGlite) the catch calls `finishWorker("WORKER_RESULT=FAIL reason=<error.message>\n<stack>", 1, cleanup)`, so a failure now surfaces the **real reason + stack** instead of `""`. `cleanup` is a `let` upgraded once the orchestrator/store exist, so the catch always has a safe teardown. The `no-root-dir` early-out and the bottom `main().then` net also flush before exiting (the latter via the `stdout.write(…, () => exit(1))` callback).
+- **`runWorker` already captures BOTH stdout AND stderr** into the single combined `out` (`spawn-worker.ts` appends `child.stdout` *and* `child.stderr` data to `out`) — verified, no change needed — so a thrown stack printed to either stream is now visible to the suite.
+
+## Fix part 2 — lifecycle `setup`/`teardown` no longer touch a PTY (the last ConPTY-child dependency, removed)
+
+`apps/host/src/lifecycle.ts`: replaced the PTY-based `runShellLine` with a `node:child_process`-based `runCommandLine` + `spawnLifecycleCommand`. A batch setup/teardown command needs no TTY, so each command now runs on a **NON-interactive per-OS shell via plain `spawn`**, `stdio` piped:
+- **Windows:** `cmd.exe /d /s /c "<line>"` with `windowsVerbatimArguments: true` so **cmd** (not Node's CommandLineToArgvW escaper) parses the line; `/s` strips the wrapping quotes and runs the remainder verbatim — exactly Node's own `shell:true` recipe. **POSIX:** `sh -c "<line>"`. A pinned shell is still honored (pwsh/powershell `-NonInteractive -Command`, bash/zsh/sh `-c`, wsl `bash -c`).
+- **Exit code from the child's real `close` event** (`code ?? (signal ? 1 : 0)`), not a scanned sentinel — more reliable.
+- **Bounded:** an overrunning command is tree-killed (`taskkill /pid <pid> /t /f` on win32, `SIGKILL` on posix) and reported as timeout `124`, so a lifecycle phase can never hang the worker.
+- **Env injection unchanged in effect:** `SWARM_ROOT_PATH` / `SWARM_WORKSPACE_NAME` / `SWARM_WORKSPACE_PATH` are injected via the spawn `env` option (merged over `process.env`), inherited by any grandchild (e.g. the test's `node -e` reading `SWARM_WORKSPACE_NAME`).
+- **Event semantics preserved exactly:** each command still emits a `running` then a `done`/`error` `workspace.lifecycle` event carrying exit code + bounded output tail; `setup` stops on first failure, `teardown` is best-effort. `LifecyclePhaseOptions` dropped its `supervisor` field; the orchestrator's two call sites (setup pre-launch, teardown post-exit) updated. The agent launch itself still uses the real PTY (proven by the integration worker) — only the batch lifecycle commands moved off it.
+
+## Why this is robust on the GH runner
+
+The two parts are independent guards. Part 1 makes an empty verdict structurally impossible: a boot breadcrumb prints immediately and every code path (success, early-out, ANY throw, the outer net) flushes a `WORKER_RESULT` line before exiting, so a future failure shows its cause. Part 2 removes the last ConPTY-shell-child from the lifecycle path — the exact class of dependency that stalled on `windows-latest` — replacing it with plain piped `child_process` whose exit code comes from the OS `close` event. The P07 ordering (setup fully completes before launch; teardown after session end) and env injection, and the P03 real-`generic`→`done` dispatch, are all unchanged; no assertion weakened or skipped.
+
+## Files changed
+- `apps/host/src/host-lifecycle-worker.ts` — boot breadcrumb; `main()` wrapped in try/catch; every exit (incl. failures) via `finishWorker` so output is always flushed.
+- `apps/host/src/lifecycle.ts` — `runShellLine` (PTY + exit sentinel) → `runCommandLine`/`spawnLifecycleCommand` (`node:child_process`, per-OS non-interactive shell, piped, real `close` exit code, bounded tree-kill); dropped `supervisor`/`PtyHost`/`ShellKind`/`buildExitLine`/`scanOutput` usage; `LifecyclePhaseOptions.supervisor` removed.
+- `apps/host/src/orchestrator.ts` — setup + teardown `runLifecyclePhase` calls no longer pass `supervisor`.
+
+## Verification (this Windows host; the GH-runner failure does not reproduce locally — the lifecycle suite passes locally either way)
+- `bun run lint` (biome, 140 files) → clean.
+- `bunx turbo run typecheck build test --force` (42 tasks, all packages, cache-disabled) run **2× consecutively → 2/2 full-tree green (42/42 each, 0 fail)**.
+  - `@swarm/host` → **12 pass / 0 fail, 91 expect() calls** both runs, and the suite **returns promptly** (`Ran 12 tests … [34.95s]` run 1, `[46.83s]` run 2 — well under the 180s timeout). The previously-empty `the lifecycle worker run passed end-to-end` now passes, alongside P03 (real `generic` → `done`, `out.md` written, ≥4 persisted lifecycle events) and P07 (`setup` before / `teardown` after, `SWARM_WORKSPACE_NAME` marker content).
+- Banned-token scan (RUBRIC §6.1 pattern) over `apps packages docs` → clean (0 matches).
+- Per-package deps only (new code uses Node builtins: `node:child_process` `spawn`/`spawnSync`, the Windows `taskkill` builtin; no new third-party deps). Did not commit/push.

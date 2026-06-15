@@ -334,7 +334,6 @@ export class Orchestrator {
     // marker it writes is already present when the agent's session starts.
     if (config && config.setup.length > 0) {
       await runLifecyclePhase({
-        supervisor: this.supervisor,
         workspaceId: workspace.id,
         cwd: cwdOs,
         repoRoot: ctx.repoRoot,
@@ -417,7 +416,6 @@ export class Orchestrator {
       return;
     }
     await runLifecyclePhase({
-      supervisor: this.supervisor,
       workspaceId: ctx.workspace.id,
       cwd: ctx.cwdOs,
       repoRoot: ctx.repoRoot,
