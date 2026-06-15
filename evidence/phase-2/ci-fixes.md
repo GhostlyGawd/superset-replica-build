@@ -194,3 +194,43 @@ The node path no longer touches PATH: `process.execPath` is the very binary runn
   - `@swarm/host` → **12 pass / 0 fail** (both runs) — host-integration (8 assertions incl. `tRPC COMMAND PATH (P03 real dispatch): a 4th agent via the API ran a REAL adapter`) + host-lifecycle (incl. `P03: the API dispatched a REAL generic adapter (not the mock) to done`, P07 setup-before / teardown-after).
 - Banned-token scan (RUBRIC §6.1 pattern, incl. `unimplemented|stub`) over `apps packages docs` → clean (0 matches).
 - Per-package deps only (new code uses Node builtins + `process.execPath`; no new third-party deps). Did not commit/push.
+
+---
+
+# Phase 2 — `@swarm/host` worker never exits → 180s spawnSync timeout (final windows-latest blocker)
+
+**Date:** 2026-06-15 · **Host:** Windows 10 Home build 19045 (x64) · **Toolchain:** Node v24.14.1, Bun 1.3.14 · **Context:** after the `resolveExecutable` fix landed (real `generic` dispatch resolves + runs), `@swarm/host#test` failed ONLY on `windows-latest` (green locally + on ubuntu/macOS CI) as `1 fail · (fail) (unnamed) [180409.53ms]` — a ~180s **timeout/hang with no assertion error**. The real host now starts and the agents run; the worker just never terminates, so the parent `spawnSync` blocks to its 180 000 ms cap. Cannot reproduce locally (passes locally either way) → fixed robustly-by-construction.
+
+## Root cause — a lingering handle keeps the spawned worker's event loop alive, so it never exits
+
+Both host tests run the real engine in a spawned **Node child** (`host-worker.ts` / `host-lifecycle-worker.ts`), parsed by Bun via `spawnSync("node", [WORKER, root], { timeout: 180_000 })`. `spawnSync` blocks until the child **process exits** (not until it prints) and collects all stdout. The workers already printed `HOST_RESULT=…`/`WORKER_RESULT=…` and even called `exit(code)` — but only **after** `await host.close()` / `await store.close()`. The hang was in that teardown:
+
+- **`host.close()` → `server.close(cb)` waits forever for idle keep-alive sockets.** The worker issues many `fetch()` calls to the host (tRPC auth/status/create/start/stop). Node's global `fetch` (undici) keeps its connections **alive** in a pool, so the host's `http.Server` still has OPEN keep-alive sockets when `close()` is called. Plain `server.close()` only stops *accepting* and then waits for every existing connection to go idle/close — which the pooled sockets never do — so its callback never fires, the `close()` promise never resolves, and the worker's `main()` never reaches `exit(code)`. (This is the same class of `server.close` teardown hang the sync layer hit earlier under Bun.)
+- **Secondary live handles on the same loop:** the WS sync sockets and node-pty ConPTY pipes are additional handles that can keep a Node event loop ref'd on Windows even after the verdict is printed.
+
+So the verdict was on the wire, but the process stayed alive → `spawnSync` hit 180s → `(fail) (unnamed) [180409ms]`. The Bun test files themselves hold no network handles (all WS/HTTP work happens inside the Node worker; the test only does `spawnSync` + on-disk checks + `rmSync` in `afterAll`), so no test-side cleanup was needed.
+
+## Fix — deterministic host shutdown (closeAllConnections + tree-kill + PGlite close) + a worker hard-exit safety net
+
+1. **`apps/host/src/server.ts` — `RunningHost.close()` is now deterministic and ordered:** (a) `await sync.close()` (terminates live WS clients, detaches the upgrade handler); (b) `await orchestrator.shutdown()` (tree-kills every spawned PTY/agent process so no node-pty pipe survives); (c) **`server.closeAllConnections()`** to force-close the lingering keep-alive HTTP/WS sockets undici left open — *then* `await server.close()`. `closeAllConnections()` (Node ≥18.2, present in Node 24) is the missing piece: without it `close()` waits on those sockets forever. `runDaemon`'s wrapper still additionally `await store.close()` (closes PGlite) after the base close, so the full daemon teardown is server + WS + PTYs + PGlite.
+2. **`apps/host/src/orchestrator.ts` — `shutdown()`** added: `await supervisor.killAll(); this.runs.clear()`. **`packages/pty-supervisor/src/index.ts` — `killAll()`** added: tree-kills every live PTY's process tree (`treeKill`/`taskkill /T /F`) and deregisters them; idempotent (no-op when all agents already stopped, which they are by the time the workers report).
+3. **`apps/host/src/worker-exit.ts` (new) — `finishWorker(resultLine, code, teardown, graceMs=5000)`:** the robust, deterministic test-harness safety net. It (1) writes the final `HOST_RESULT`/`WORKER_RESULT` line and **awaits the write callback** so the verdict is flushed to the parent's pipe (bounded by a 1s race so a back-pressured pipe can't block either); (2) runs the graceful `teardown()` bounded by `graceMs` via `Promise.race`; then (3) calls **`process.exit(code)`** unconditionally. Step 3 guarantees a stray open handle — keep-alive socket, node-pty pipe, or PGlite connection — can NEVER keep the worker (and thus the parent `spawnSync`) alive to the 180s cap, on any OS. Both workers were rewired to end with `await finishWorker(...)` instead of `await host.close(); await store.close(); return code` (host-worker tears down `host.close()` + `store.close()`; lifecycle-worker tears down `orchestrator.shutdown()` + `store.close()`). The result line is still emitted before exit, so the report parsing + every assertion are unchanged.
+
+## Why this is robust on the GH runner
+
+The hang had two independent guards added: the host's `close()` now force-drops the exact sockets that blocked it (`closeAllConnections`) and tree-kills PTYs, so teardown returns promptly **by construction**; and even if any future handle still lingered, `finishWorker`'s bounded `process.exit(code)` after flushing the verdict makes the worker exit deterministically. No assertion was weakened or skipped — P01/P02/P03/P04/P10/P11 (integration) and P03 + P07 ordering (lifecycle) all run exactly as before; the only change is that the worker now terminates promptly instead of idling on a kept-alive loop.
+
+## Files changed
+- `apps/host/src/server.ts` — `RunningHost.close()`: `sync.close()` → `orchestrator.shutdown()` → `server.closeAllConnections()` → `server.close()`; ordered, doc'd.
+- `apps/host/src/orchestrator.ts` — added `shutdown()` (tree-kill all PTYs via the supervisor, clear run map).
+- `packages/pty-supervisor/src/index.ts` — added `killAll()` (tree-kill + deregister every live PTY; idempotent).
+- `apps/host/src/worker-exit.ts` — new `finishWorker()` (flush verdict → bounded teardown → hard `process.exit`).
+- `apps/host/src/host-worker.ts` / `apps/host/src/host-lifecycle-worker.ts` — end via `finishWorker(...)`; verdict + assertions unchanged.
+
+## Verification (this Windows host; the GH-runner hang does not reproduce locally — the host test passes locally either way)
+- `bun run lint` (biome, 139 files) → clean.
+- `bunx turbo run typecheck build test --force` (42 tasks, all packages, cache-disabled) run **2× consecutively → 2/2 full-tree green (42/42 each, 0 fail)**.
+  - `@swarm/host` → **12 pass / 0 fail, 91 expect() calls** both runs, and the suite **returns promptly** (`Ran 12 tests … [54.79s]` run 1, `[53.76s]` run 2 — well under the 180s timeout, vs the prior 180409ms hang). host-integration (P01/P02/P03/P04/P10/P11) + host-lifecycle (P03 real `generic` dispatch + P07 setup-before / teardown-after) all intact.
+  - `@swarm/pty-supervisor` (incl. the new `killAll`-adjacent tree-kill path) → 4 pass / 0 fail.
+- Banned-token scan (RUBRIC §6.1 pattern) over `apps packages docs` → clean (0 matches).
+- Per-package deps only (new code uses Node builtins: `node:process`, `node:http` `closeAllConnections`, and the existing `tree-kill` already in `@swarm/pty-supervisor`; no new third-party deps). Did not commit/push.

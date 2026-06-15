@@ -26,6 +26,7 @@ import { asId } from "@swarm/shared";
 import { EventLog } from "@swarm/sync";
 import { Orchestrator } from "./orchestrator.ts";
 import { PgliteEventLogStore } from "./pglite-event-log-store.ts";
+import { finishWorker } from "./worker-exit.ts";
 
 interface Rec {
   readonly seq: number;
@@ -149,10 +150,15 @@ async function main(): Promise<number> {
       `setupBeforeAgent=${setupBeforeAgent} teardownAfterAgent=${teardownAfterAgent} ` +
       `markers(setup=${setupMarkerExists},teardown=${teardownMarkerExists}) persisted=${persistedLifecycle}`,
   );
-  console.log(`WORKER_RESULT=${pass ? "PASS" : "FAIL"}`);
-
-  await store.close();
-  return pass ? 0 : 1;
+  // Emit the verdict, then deterministically tear down + HARD-EXIT so a lingering
+  // node-pty pipe or PGlite handle can never hang the worker (and thus the parent
+  // spawnSync) to the 180s timeout — see worker-exit.ts.
+  const code = pass ? 0 : 1;
+  await finishWorker(`WORKER_RESULT=${pass ? "PASS" : "FAIL"}`, code, async () => {
+    await orchestrator.shutdown();
+    await store.close();
+  });
+  return code;
 }
 
 main().then(

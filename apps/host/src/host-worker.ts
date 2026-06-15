@@ -23,6 +23,7 @@ import { webSocketTransport } from "@swarm/sync/server";
 import { Orchestrator } from "./orchestrator.ts";
 import { PgliteEventLogStore } from "./pglite-event-log-store.ts";
 import { startHost } from "./server.ts";
+import { finishWorker } from "./worker-exit.ts";
 
 // The 3 parallel agents use the keyless mock under an EXPLICIT per-call flag
 // (`enableMock:true`, a legitimate test use); the tRPC command path below runs a
@@ -429,11 +430,15 @@ async function main(): Promise<number> {
       `auth(${httpNoToken}/${httpWithToken},ws=${wsRejectedNoToken}) ` +
       `events=${allRows.length} liveOrdered=${liveOrdered} wsCaughtUp=${wsCaughtUp}`,
   );
-  console.log(`HOST_RESULT=${pass ? "PASS" : "FAIL"}`);
-
-  await host.close();
-  await store.close();
-  return pass ? 0 : 1;
+  // Emit the verdict, then deterministically tear down + HARD-EXIT so a lingering
+  // keep-alive HTTP/WS socket, node-pty pipe, or PGlite handle can never hang the
+  // worker (and thus the parent spawnSync) to the 180s timeout — see worker-exit.ts.
+  const code = pass ? 0 : 1;
+  await finishWorker(`HOST_RESULT=${pass ? "PASS" : "FAIL"}`, code, async () => {
+    await host.close();
+    await store.close();
+  });
+  return code;
 }
 
 main().then(

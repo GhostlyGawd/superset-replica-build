@@ -184,7 +184,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     manifest,
     orchestrator,
     close: async () => {
+      // Deterministic teardown — the order matters on Windows, where a lingering
+      // socket or PTY pipe otherwise keeps the process alive past test timeout:
+      //   1) release the WS sync hub (terminates live sockets, detaches the handler);
+      //   2) tree-kill every spawned PTY/agent process so no node-pty pipe survives;
+      //   3) force-close lingering keep-alive HTTP/WS sockets (undici's fetch pool
+      //      keeps these OPEN — plain `server.close()` then waits forever for them),
+      //      THEN stop accepting and close the listener.
       await sync.close();
+      await orchestrator.shutdown();
+      server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       try {
         rmSync(manifestPath, { force: true });

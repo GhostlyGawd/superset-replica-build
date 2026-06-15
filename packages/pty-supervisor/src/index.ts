@@ -297,6 +297,15 @@ export class PtySupervisor {
     });
   }
 
+  /**
+   * Tree-kill EVERY live PTY's process tree and deregister them all. Used by host
+   * shutdown so no node-pty ConPTY pipe (a lingering handle that keeps Node's event
+   * loop alive on Windows) survives teardown. Idempotent; a no-op when nothing runs.
+   */
+  async killAll(): Promise<void> {
+    await Promise.all([...this.entries.keys()].map((id) => this.kill(id)));
+  }
+
   /** Root OS process id for a live PTY, or undefined if unknown. */
   pidOf(ptyId: PtyId): number | undefined {
     return this.entries.get(ptyId)?.pty.pid;

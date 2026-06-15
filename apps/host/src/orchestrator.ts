@@ -243,6 +243,16 @@ export class Orchestrator {
   }
 
   /**
+   * Stop everything this orchestrator owns: tree-kill every live PTY/agent process
+   * tree via the supervisor so no node-pty pipe keeps the event loop alive after the
+   * host closes (the Windows teardown hang). Idempotent; safe when nothing is running.
+   */
+  async shutdown(): Promise<void> {
+    await this.supervisor.killAll();
+    this.runs.clear();
+  }
+
+  /**
    * Validate + resolve the requested adapter BEFORE any DB write. An absent
    * selection, a disabled mock, or a `generic` adapter without a command all
    * throw here, so no orphan session is created and the mock never runs implicitly.
