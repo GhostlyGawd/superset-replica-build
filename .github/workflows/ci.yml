@@ -146,3 +146,90 @@ jobs:
           name: playwright-report-mobile
           path: apps/mobile/playwright-report
           retention-days: 7
+
+  # Validate the W4 electron-builder packaging config COLD on all 3 OSes (ADR-0016).
+  # UNLIKE every other job, this one needs the real Electron binary and runs
+  # `electron-builder --dir` — the UNPACKED app tree, NO installer, NO GUI launch — so
+  # the packaging config can't silently rot. A GUI launch is NOT asserted here (that +
+  # the full NSIS/dmg/AppImage installers are local W6 evidence under evidence/phase-5/);
+  # `--dir` is all that is honestly verifiable headlessly. The other jobs (verify/e2e/
+  # e2e-mobile) keep the workflow-level ELECTRON_SKIP_BINARY_DOWNLOAD: "1" and never
+  # download Electron — only this job does.
+  package:
+    name: package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    # Override the workflow-level skip for THIS job only. (Electron v42's installer +
+    # @electron/get no longer read this var, and bun blocks Electron's untrusted
+    # postinstall regardless — so the binary is actually fetched by the explicit prime
+    # step below; this override just keeps the intent unambiguous and neutralizes the
+    # global "1" for any electron-builder code path that still consults it.)
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Setup Node (electron-builder toolchain)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Cache the Electron binary (@electron/get) + electron-builder's downloaded tools,
+      # keyed on the lockfile, so repeat runs don't re-pull ~150–250 MB on the metered
+      # Windows/macOS runners. Per-OS key (the binaries are platform-specific).
+      - name: Cache Electron + electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            electron-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Bun does not run Electron's (untrusted) postinstall, so node_modules/electron has
+      # no binary after install. Fetch it explicitly via Electron's own installer (which
+      # downloads through @electron/get into the cache above + populates dist/), so
+      # electron-builder finds a real Electron. ELECTRON_SKIP_BINARY_DOWNLOAD="" here is
+      # the unambiguous "do not skip" value for any installer version that DOES check it.
+      - name: Prime the Electron binary
+        working-directory: apps/desktop
+        run: node -e "require('node:child_process').execFileSync(process.execPath,[require.resolve('electron/install.js')],{stdio:'inherit'})"
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: ""
+
+      - name: Build (turbo) — emits apps/desktop/dist (main.js + preload.cjs + renderer)
+        run: bun run build
+
+      - name: Package unpacked app (electron-builder --dir — no installer, no GUI launch)
+        run: bun run --filter @swarm/desktop package:dir
+
+      - name: Assert the unpacked Grove app exists (app tree + bundled main/renderer in asar)
+        working-directory: apps/desktop
+        run: node ./scripts/assert-unpacked.mjs
+
+      - name: Upload the unpacked app (short retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: grove-unpacked-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*-unpacked
+            apps/desktop/release/mac*
+          retention-days: 2
+          if-no-files-found: error
