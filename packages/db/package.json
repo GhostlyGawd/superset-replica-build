@@ -10,13 +10,27 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./store": {
+      "types": "./src/store.ts",
+      "default": "./src/store.ts"
+    },
+    "./schema": {
+      "types": "./src/schema.ts",
+      "default": "./src/schema.ts"
     }
   },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@swarm/shared": "workspace:*"
+    "@electric-sql/pglite": "^0.5.2",
+    "@swarm/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10"
   }
 }

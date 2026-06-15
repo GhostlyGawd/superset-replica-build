@@ -10,14 +10,23 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./server": {
+      "types": "./src/server-entry.ts",
+      "default": "./src/server-entry.ts"
     }
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist",
-    "typecheck": "tsc --noEmit"
+    "build": "bun build ./src/index.ts ./src/server-entry.ts --outdir ./dist --target node --packages external",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@swarm/core-engine": "workspace:*",
-    "@swarm/shared": "workspace:*"
+    "@swarm/shared": "workspace:*",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

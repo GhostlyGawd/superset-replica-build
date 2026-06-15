@@ -14,7 +14,8 @@
   },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@swarm/db": "workspace:*",
