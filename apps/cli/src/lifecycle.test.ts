@@ -51,7 +51,10 @@ afterAll(async () => {
   } catch {
     // A leftover temp dir (Windows file lock) must never fail the run.
   }
-});
+  // Teardown (graceful→forced tree-kill + bounded Windows `rm` retries) can run
+  // past bun's 5 s default hook timeout under heavy parallel `turbo` load, so give
+  // it explicit headroom — the assertions themselves are unchanged.
+}, 30_000);
 
 describe("@swarm/cli — real daemon lifecycle (start → status → stop, detached Node host)", () => {
   test("grove start launches a detached Node daemon that answers /healthz", async () => {

@@ -120,7 +120,10 @@ afterAll(async () => {
   } catch {
     // A leftover temp dir (Windows file lock) must never fail the run.
   }
-});
+  // Teardown (graceful→forced tree-kill + bounded Windows `rm` retries) can run
+  // past bun's 5 s default hook timeout under heavy parallel `turbo` load, so give
+  // it explicit headroom — the assertions themselves are unchanged.
+}, 30_000);
 
 describe("@swarm/cli — grove up (dep preflight + start + pair), real round-trip", () => {
   test("--check runs the preflight only and starts nothing", async () => {

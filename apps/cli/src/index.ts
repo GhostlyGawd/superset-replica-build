@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { type RunningHost, defaultManifestPath, runDaemon } from "@swarm/host/daemon";
 import qrcode from "qrcode-terminal";
 import { type DepReport, formatDepTable, verifyDeps } from "./dep-verify.ts";
+import { pidAlive, treeKill } from "./proc.ts";
+import { type Tunnel, type TunnelProvider, startTunnel } from "./tunnel.ts";
 
 /**
  * @swarm/cli — the `grove` command-line entrypoint (spec §2, P13). Verb parsing
@@ -162,16 +164,131 @@ function toLanEndpoint(endpoint: string): string {
 }
 
 /**
- * `grove pair [--lan]` — mint a single-use pairing code from the running host and
- * print it as a scannable terminal QR plus text (ADR-0014). The QR encodes the
- * host URL + the *code* (never the bearer); the PWA reads `?code=` to auto-fill.
- * `--lan` rewrites the URL to the host's LAN IP (requires `grove host --lan`).
- * Returns the minted code + the URL it rendered, so `grove up` can fold it into a
- * single bootstrap summary (and a test can assert a real code was minted).
+ * Build the pairing URL the QR encodes: the reachable origin (loopback, LAN IP, or —
+ * over a tunnel — the public HTTPS origin) plus the one-time `?code=`. The bearer is
+ * NEVER in here (it is exchanged for the code via `pair.redeem`, ADR-0014). Exported
+ * so a unit test can assert `--remote` threads the tunnel URL into the QR payload
+ * without standing up a real tunnel.
+ */
+export function buildPairUrl(endpoint: string, code: string): string {
+  return `${endpoint}/?code=${code}`;
+}
+
+export interface RemoteOptions {
+  readonly remote: boolean;
+  readonly provider?: TunnelProvider;
+  /** Args with the remote-only flags stripped — safe to forward to the daemon. */
+  readonly forwarded: string[];
+}
+
+/** Pull `--remote` / `--provider <name>` off the args, leaving daemon flags intact. */
+export function parseRemoteOptions(args: readonly string[]): RemoteOptions {
+  const remote = args.includes("--remote");
+  let provider: TunnelProvider | undefined;
+  const forwarded: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const flag = args[i];
+    if (flag === undefined || flag === "--remote") {
+      continue;
+    }
+    if (flag === "--provider") {
+      const value = args[i + 1];
+      if (value === "cloudflared" || value === "localtunnel") {
+        provider = value;
+      }
+      i += 1; // consume the value (never forward it to the daemon).
+      continue;
+    }
+    forwarded.push(flag);
+  }
+  return { remote, provider, forwarded };
+}
+
+/** Resolve once on the first Ctrl-C / SIGTERM so the caller can tear the tunnel down. */
+function waitForShutdown(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => resolve();
+    process.once("SIGINT", done);
+    process.once("SIGTERM", done);
+  });
+}
+
+/**
+ * Open a public quick tunnel to the running host, mint a single-use code, and render
+ * the remote pairing QR (ADR-0017). The QR encodes `<tunnelUrl>/?code=<CODE>`: the
+ * PWA already defaults its endpoint to `window.location.origin`, so over the tunnel
+ * it talks to the tunnel origin unchanged, and because that origin is HTTPS (a secure
+ * context) on-device SW install + Web Push finally light up (the ADR-0014 dec-4
+ * closure). Does NOT block — the returned `tunnel` handle keeps the tunnel up until
+ * the caller stops it (on Ctrl-C / `grove stop`). The daemon must already be running.
+ */
+async function mintRemotePairing(opts: {
+  provider?: TunnelProvider;
+}): Promise<{ code: string; endpoint: string; url: string; tunnel: Tunnel }> {
+  const manifestPath = defaultManifestPath();
+  let manifest: { endpoint: string; token: string };
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      endpoint: string;
+      token: string;
+    };
+  } catch {
+    throw new Error(
+      `No running host found (expected manifest at ${manifestPath}). Start one with 'grove start'.`,
+    );
+  }
+
+  const port = Number(new URL(manifest.endpoint).port) || 0;
+  console.log(`Opening a ${opts.provider ?? "cloudflared"} tunnel to ${manifest.endpoint}…`);
+  const tunnel = await startTunnel({ port, provider: opts.provider });
+
+  let minted: { code: string; endpoint: string; expiresAt: string };
+  try {
+    minted = await fetchPairCode(manifest.endpoint, manifest.token);
+  } catch (err) {
+    tunnel.stop(); // never leak the tunnel if minting fails.
+    throw err;
+  }
+
+  const url = buildPairUrl(tunnel.url, minted.code);
+  qrcode.generate(url, { small: true }, (rendered) => process.stdout.write(`${rendered}\n`));
+  console.log(`Tunnel:        ${tunnel.url}  (via ${tunnel.provider})`);
+  console.log(`Pairing code:  ${minted.code}`);
+  console.log(`On your phone: ${url}`);
+  console.log(`Expires:       ${minted.expiresAt}`);
+  console.log("Scan from your phone, anywhere — it is HTTPS, so install + push light up.");
+  console.log("The bearer token is NOT in the QR — only this one-time code is.");
+  console.log("The tunnel stays up until you press Ctrl-C (or run 'grove stop').");
+  return { code: minted.code, endpoint: tunnel.url, url, tunnel };
+}
+
+/**
+ * `grove pair [--lan | --remote] [--provider cloudflared|localtunnel]` — mint a
+ * single-use pairing code from the running host and print it as a scannable terminal
+ * QR plus text (ADR-0014). The QR encodes the reachable URL + the *code* (never the
+ * bearer); the PWA reads `?code=` to auto-fill. `--lan` rewrites the URL to the host's
+ * LAN IP (requires `grove host --lan`). `--remote` (ADR-0017) ensures the daemon is up,
+ * opens a cloudflared/localtunnel quick tunnel, points pairing at the public HTTPS
+ * tunnel URL, prints the QR, then keeps the tunnel up until Ctrl-C. Returns the minted
+ * code + the URL it rendered, so `grove up` can fold it into a bootstrap summary (and a
+ * test can assert a real code was minted).
  */
 export async function runPair(
   args: readonly string[] = [],
 ): Promise<{ code: string; endpoint: string; url: string }> {
+  const { remote, provider, forwarded } = parseRemoteOptions(args);
+
+  if (remote) {
+    // Ensure a daemon is running (idempotent) — `--lan` is irrelevant behind a tunnel.
+    await runStart(forwarded.filter((flag) => flag !== "--lan"));
+    console.log("");
+    const minted = await mintRemotePairing({ provider });
+    await waitForShutdown();
+    console.log("\nClosing the tunnel…");
+    minted.tunnel.stop();
+    return { code: minted.code, endpoint: minted.endpoint, url: minted.url };
+  }
+
   const lan = args.includes("--lan");
   const manifestPath = defaultManifestPath();
   let manifest: { endpoint: string; token: string };
@@ -188,7 +305,7 @@ export async function runPair(
 
   const minted = await fetchPairCode(manifest.endpoint, manifest.token);
   const displayEndpoint = lan ? toLanEndpoint(minted.endpoint) : minted.endpoint;
-  const url = `${displayEndpoint}/?code=${minted.code}`;
+  const url = buildPairUrl(displayEndpoint, minted.code);
 
   qrcode.generate(url, { small: true }, (rendered) => process.stdout.write(`${rendered}\n`));
   console.log(`Pairing code:  ${minted.code}`);
@@ -200,7 +317,8 @@ export async function runPair(
   }
   if (!lan) {
     console.log(
-      "Tip: 'grove host --lan' then 'grove pair --lan' to pair a phone over your network.",
+      "Tip: 'grove host --lan' then 'grove pair --lan' to pair a phone over your network,\n" +
+        "or 'grove pair --remote' to pair from anywhere over a secure tunnel.",
     );
   }
   return { code: minted.code, endpoint: displayEndpoint, url };
@@ -238,23 +356,6 @@ function readManifest(): DaemonManifest | null {
   }
 }
 
-/**
- * Cross-platform "is this PID alive?". Signal `0` probes a process without
- * delivering a signal: it throws `ESRCH` when the PID is gone and `EPERM` when the
- * process exists but is owned by another user (⇒ alive).
- */
-function pidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
 /** Probe the unauthenticated `/healthz` liveness endpoint with a bounded timeout. */
 async function healthzOk(endpoint: string): Promise<boolean> {
   try {
@@ -275,34 +376,6 @@ async function healthzOk(endpoint: string): Promise<boolean> {
 function nodeBin(): string {
   // Under Node, reuse the exact running binary; under Bun, resolve `node` off PATH.
   return process.versions.bun ? "node" : process.execPath;
-}
-
-/**
- * Terminate a daemon process TREE by PID (ADR-0011). On Windows there is no
- * deliverable graceful signal for a windowless detached process, so `taskkill /T`
- * (whole tree) is used — without `/F` for the graceful pass, with `/F` to force. On
- * POSIX the daemon is spawned `detached` (its own process group), so a negative PID
- * delivers the signal to the WHOLE group (the daemon + every PTY it spawned), with a
- * single-PID fallback when the group is already gone.
- */
-function treeKill(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
-  if (process.platform === "win32") {
-    const args = ["/pid", String(pid), "/t"];
-    if (signal === "SIGKILL") {
-      args.push("/f");
-    }
-    spawnSync("taskkill", args, { stdio: "ignore" });
-    return;
-  }
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // Already gone — killing is best-effort.
-    }
-  }
 }
 
 /** Human-friendly uptime from the manifest's ISO `startedAt`. */
@@ -571,20 +644,23 @@ export interface UpResult {
 }
 
 /**
- * `grove up [--check] [--port N] [--db DIR] [--host H | --lan]` — stand up a private
- * Grove in one command. (1) Verify deps cross-platform (node/bun/git required,
- * cloudflared optional — ADR-0004, no shell assumptions); abort with exact install
- * hints if a required tool is missing. (2) `--check` stops here (preflight only).
- * (3) Otherwise start the daemon idempotently (`runStart` — boots the host, which
- * creates/loads the store + bearer + VAPID), passing `--port`/`--db`/`--host`/`--lan`
- * through. (4) Mint a single-use code + render the scannable QR (`runPair`). Catches
- * every error into a friendly message + non-zero exit — never a stack trace.
+ * `grove up [--check] [--remote] [--provider name] [--port N] [--db DIR] [--host H | --lan]`
+ * — stand up a private Grove in one command. (1) Verify deps cross-platform
+ * (node/bun/git required, cloudflared optional — ADR-0004, no shell assumptions);
+ * abort with exact install hints if a required tool is missing. (2) `--check` stops
+ * here (preflight only). (3) Otherwise start the daemon idempotently (`runStart` —
+ * boots the host, which creates/loads the store + bearer + VAPID), passing
+ * `--port`/`--db`/`--host`/`--lan` through. (4) Mint a single-use code + render the
+ * scannable QR (`runPair`). With `--remote` (ADR-0017) it instead opens a quick tunnel,
+ * pairs over the public HTTPS URL, and keeps the tunnel up until Ctrl-C. Catches every
+ * error into a friendly message + non-zero exit — never a stack trace.
  */
 export async function runUp(args: readonly string[] = []): Promise<UpResult> {
   const dryRun = args.includes("--check") || args.includes("--dry-run");
-  const lan = args.includes("--lan");
-  // Forward host/start flags through to the daemon; strip the up-only flags.
-  const forwarded = args.filter((arg) => arg !== "--check" && arg !== "--dry-run");
+  const { remote, provider, forwarded: remoteForwarded } = parseRemoteOptions(args);
+  const lan = !remote && args.includes("--lan");
+  // Forward host/start flags through to the daemon; strip the up-only + remote-only flags.
+  const forwarded = remoteForwarded.filter((arg) => arg !== "--check" && arg !== "--dry-run");
 
   console.log("grove up — bootstrapping your private Grove…\n");
 
@@ -594,7 +670,10 @@ export async function runUp(args: readonly string[] = []): Promise<UpResult> {
   console.log(formatDepTable(depReport));
   const cloudflared = depReport.checks.find((check) => check.spec.bin === "cloudflared");
   if (cloudflared && !cloudflared.found) {
-    console.log("  note: cloudflared is optional — only 'grove up --remote' (W3) needs it.");
+    const tail = remote
+      ? " — '--remote' will try localtunnel as the OSS fallback."
+      : " — only 'grove up --remote' (W3) needs it.";
+    console.log(`  note: cloudflared is optional${tail}`);
   }
   console.log("");
 
@@ -615,9 +694,26 @@ export async function runUp(args: readonly string[] = []): Promise<UpResult> {
   try {
     // 2) Bring the daemon up (idempotent — attaches + reports if already running).
     const started = await runStart(forwarded);
+    console.log("");
+
+    if (remote) {
+      // 3a) Remote path — open a quick tunnel + pair over the public HTTPS URL.
+      const minted = await mintRemotePairing({ provider });
+      console.log("");
+      console.log("Grove is up (remote).");
+      console.log(`  endpoint:  ${started.endpoint}`);
+      console.log(`  tunnel:    ${minted.endpoint}`);
+      console.log(`  pid:       ${started.pid}`);
+      console.log("  scan the QR above from your phone, anywhere.");
+      console.log("  Ctrl-C closes the tunnel; the daemon keeps running ('grove stop' halts it).");
+      const paired = { code: minted.code, endpoint: minted.endpoint, url: minted.url };
+      await waitForShutdown();
+      console.log("\nClosing the tunnel…");
+      minted.tunnel.stop();
+      return { ok: true, depReport, started, paired, dryRun: false, exitCode: 0 };
+    }
 
     // 3) Mint a single-use pairing code + render the scannable terminal QR.
-    console.log("");
     const paired = await runPair(lan ? ["--lan"] : []);
 
     // 4) Tidy bootstrap summary.
@@ -678,10 +774,15 @@ Options (up / start / host):
   --host <addr>  Bind address (default 127.0.0.1)
   --lan          Bind 0.0.0.0 and show the LAN URL (phone on the same network)
 
+Options (up / pair):
+  --remote            Pair over a public HTTPS quick tunnel (phone anywhere)
+  --provider <name>   Tunnel provider: cloudflared (default) or localtunnel
+
 Options (up):
   --check        Run the dependency preflight only; start nothing
 
-Run 'grove up' for the friendly one-command path.`;
+Run 'grove up' for the friendly one-command path,
+or 'grove up --remote' to pair a phone from anywhere.`;
 
 /** Dispatch one CLI invocation. Sets `process.exitCode` instead of throwing for `up`. */
 async function main(argv: readonly string[]): Promise<void> {

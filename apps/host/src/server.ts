@@ -17,6 +17,7 @@ import { type SyncServer, createSyncServer } from "@swarm/sync/server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { Orchestrator } from "./orchestrator.ts";
+import { isOriginAllowed, parseAllowedOrigins } from "./origin-allowlist.ts";
 import { PairingStore } from "./pair.ts";
 import { PgliteEventLogStore } from "./pglite-event-log-store.ts";
 import { PUSH_CAPTURE_ENV, PushSender, loadOrCreateVapid } from "./push.ts";
@@ -199,15 +200,26 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   app.get("/healthz", (c) => c.json({ ok: true, name: APP_CODENAME, hostId, online: true }));
 
   // Browser-based clients (the desktop renderer's dev server / file origin, the
-  // mobile PWA) reach the host cross-origin, so the tRPC surface answers CORS
-  // preflight and reflects the allowed methods/headers. This is safe because the
-  // bearer token — not the origin — is the actual gate (P11): a permitted origin
-  // still cannot call anything without the token. Mounted BEFORE the auth guard so
-  // the credential-less OPTIONS preflight is short-circuited here, not 401'd.
+  // mobile PWA, and — over a quick tunnel, ADR-0017 — the phone at the tunnel
+  // origin) reach the host cross-origin, so the tRPC surface answers CORS preflight
+  // and reflects the allowed methods/headers. This is safe because the bearer token
+  // — not the origin — is the actual gate (P11): a permitted origin still cannot
+  // call anything without the token. Over the tunnel the secure HTTPS origin is also
+  // what makes on-device SW install + Web Push work (the ADR-0014 dec-4 closure).
+  // Mounted BEFORE the auth guard so the credential-less OPTIONS preflight is
+  // short-circuited here, not 401'd. `GROVE_ALLOWED_ORIGINS` (optional, ADR-0017
+  // defense-in-depth) narrows reflection to listed origins when set; loopback/LAN
+  // and the default (unset ⇒ reflect any) are preserved.
+  const allowedOrigins = parseAllowedOrigins(process.env.GROVE_ALLOWED_ORIGINS);
   app.use(
     "/trpc/*",
     cors({
-      origin: (origin) => origin ?? "*",
+      origin: (origin) => {
+        if (!origin) {
+          return "*"; // non-browser / same-origin requests carry no Origin header.
+        }
+        return isOriginAllowed(origin, allowedOrigins) ? origin : null;
+      },
       allowMethods: ["GET", "POST", "OPTIONS"],
       allowHeaders: ["Authorization", "Content-Type"],
       maxAge: 86_400,
