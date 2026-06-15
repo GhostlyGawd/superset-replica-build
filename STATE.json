@@ -15,18 +15,18 @@
     }
   },
   "host_os": "windows",
-  "current_phase": 3,
+  "current_phase": 4,
   "phase_status": {
     "0_recon_architecture": "done (v0.1.0; CI run 27519073829; Critic 11/0 PASS)",
     "1_brand_design": "done (v0.2.0; CI run 27520745796; Critic 5/5 PASS; screenshots evidence/phase-1)",
     "2_host_engine": "done (v0.3.0; CI run 27536255083 GREEN 3 OSes; Critic review-3 PASS; P01/P02/P03/P04/P07/P10/P11 proven incl Windows; no quarantines)",
-    "3_desktop_client": "code-complete + independent Critic ALL-PASS (release-ready pending billing) — apps/desktop on @swarm/ui + real host: P05 terminal, P06 diff/editor, P08 open-in-external (host proc), P09 nav+shortcuts+settings; full clean-install cold gate GREEN on Windows (install/lint/typecheck17/build17/test9) + product e2e 8/8 vs real host + a11y 0 critical/serious + perf budgets recorded; evidence/phase-3/review.md ALL-PASS. v0.4.0 CUT BLOCKED on 3-OS CI which is billing-blocked (ADR-0012). HEAD debcd76.",
-    "4_mobile_client": "not_started",
+    "3_desktop_client": "done (v0.4.0; CI run 27550630185 GREEN 3 OSes [verify matrix] + e2e (desktop) job; independent Critic ALL-PASS incl §6.3; axe a11y 0 critical/serious; perf budgets recorded; P05/P06/P08/P09 = Done. Billing unblocked by making repo public — ADR-0012.)",
+    "4_mobile_client": "in_progress",
     "5_platform_setup": "not_started",
     "6_hardening_launch": "not_started"
   },
-  "version": "0.3.0",
-  "next_release_target": "0.4.0",
+  "version": "0.4.0",
+  "next_release_target": "0.5.0",
   "toolchain": {
     "git": "2.53.0", "gh": "2.89.0 (authed: GhostlyGawd)", "node": "24.14.1",
     "npm": "11.11.0", "bun": "installed", "pnpm": "installed",
@@ -49,8 +49,7 @@
     "tunnel": "cloudflared / localtunnel (OSS) — Phase 5"
   },
   "next_actions": [
-    "[BLOCKED on billing — do FIRST when unblocked] Phase 3 is code-complete + Critic ALL-PASS (HEAD debcd76). When GitHub Actions billing is restored (user fixes spending/payment OR makes repo public): push/re-run CI, CONFIRM the 3-OS verify matrix + the new e2e (desktop, ubuntu) job are GREEN, then cut v0.4.0 (CHANGELOG + tag) and move Linear P05/P06/P08/P09 to Done. Watch item: cold product-e2e took ~23s/30s timeout locally on the old Windows host; if the ubuntu e2e job flakes on timeout, bump the per-test timeout.",
-    "[Phase 4 — after v0.4.0] Mobile-native PWA (apps/mobile): installable, offline-first service worker, Web Push/VAPID, gestures, safe-area, 60fps; full agent-orchestration control from the phone; on @swarm/ui + real host; Critic gate incl §6.3 + phone screenshots -> v0.5.0. (Note: the desktop shell does NOT reflow below ~16rem — that's fine for a desktop client; the phone experience is THIS phase's job.)",
+    "[ACTIVE — Phase 4] Mobile-native PWA (apps/mobile): installable (manifest + service worker, offline-first), Web Push/VAPID, touch gestures, safe-area insets, 60fps; FULL agent-orchestration control from the phone (workspace list/switch, live agent status, terminal view, diff review, dispatch) on @swarm/ui + the REAL host (the host already serves permissive CORS on /trpc for browser clients). Playwright e2e at phone viewport vs real host; independent Phase-4 Critic incl §6.3 + phone screenshots -> v0.5.0. (Desktop shell intentionally does not reflow below ~16rem; the phone experience is THIS phase's job.)",
     "[Phase 6 / launch sign-off] license-audit report (whole-product, ADR-0008) + CROSS-PLATFORM perf re-measure (the Phase-3 desktop perf-report.md terminal-stream p95 tail is interactive-Windows-PowerShell variance; transport floor is within budget — re-measure on Linux/macOS CI) + comprehensive a11y sweep, under evidence/; required before v1.0.0",
     "[harness retro follow-up] route the CI-gate lessons (turbo-cache false-green -> --force; GH-windows ConPTY discipline -> direct PTY spawn+onExit / process.execPath / child_process for batch / worker process.exit / bounded fs.rm; fresh independent Critics catch fakes) into recursive-harness artifacts via /harness-pr"
   ],
@@ -58,8 +57,9 @@
     "[DONE wave-1] @swarm/api completed to all 13 routers of architecture §3.1; SwarmConfig now Command[] arrays + per-OS shells + per-field overlay (9 tests)",
     "[phase-1 a11y nit, non-blocking] extend tokens.test.ts to assert fg-subtle AA on raised+overlay surfaces (currently only surface); fold into Phase 6 a11y audit if it forces a token tweak"
   ],
-  "blocked": [
-    "EXTERNAL/BILLING (needs user): GitHub Actions is spending-limit/payment blocked on the private repo — both Phase-3 pushes' CI jobs 'were not started because recent account payments have failed or your spending limit needs to be increased' (runs 27539598023, 27541523156; all 3 OSes, never started). main @ 0575214 CODE IS GREEN (full clean-install repro on Windows: install+lint+typecheck17/17+build17/17+test9/9 all cold-green — ADR-0012). No version can be cut until CI runs green again. FIX: raise Actions spending limit / fix payment at github.com/settings/billing, OR make the repo public (free unlimited Actions; aligns with OSS-replica goal — user's publish call). See ADR-0012."
+  "blocked": [],
+  "resolved_blockers": [
+    "[RESOLVED 2026-06-15] GitHub Actions billing block (ADR-0012): user made the private repo PUBLIC -> free unlimited Actions. Rerun of HEAD 70d9024 went GREEN on all 3 OSes + the e2e job (run 27550630185) -> v0.4.0 cut. (Repo rename to 'Grove' did NOT take; still named superset-replica-build, non-blocking — ADR-0010 already keeps the repo identifier while the product is Grove.)"
   ],
   "last_updated": "2026-06-15"
 }
