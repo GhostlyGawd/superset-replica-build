@@ -7,7 +7,14 @@ import { openStore } from "@swarm/db/store";
 import { PgliteEventLogStore, startHost } from "@swarm/host/daemon";
 import { PtySupervisor } from "@swarm/pty-supervisor";
 import { EventLog } from "@swarm/sync";
-import { BASE_URL, E2E_PORT, PAIR_FILE, type PairFixture, setTestHost } from "./host-fixture.ts";
+import {
+  BASE_URL,
+  E2E_PORT,
+  PAIR_FILE,
+  type PairFixture,
+  mintPairCode,
+  setTestHost,
+} from "./host-fixture.ts";
 
 const MOBILE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PWA_DIST = join(MOBILE_ROOT, "dist");
@@ -21,29 +28,46 @@ function buildPwa(): void {
   });
 }
 
-/** Mint a single-use pairing code by calling the bearer-gated `pair.start` over HTTP. */
-async function mintPairCode(endpoint: string, token: string): Promise<string> {
-  const res = await fetch(`${endpoint}/trpc/pair.start`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: "{}",
-  });
-  if (!res.ok) {
-    throw new Error(`pair.start failed: HTTP ${res.status}`);
-  }
-  const body = (await res.json()) as { result?: { data?: { code?: string } } };
-  const code = body.result?.data?.code;
-  if (!code) {
-    throw new Error("pair.start returned no code");
-  }
-  return code;
+/** Run git synchronously during fixture setup; throws on failure (setup must be sound). */
+function git(cwd: string, ...args: string[]): void {
+  execFileSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+}
+
+/**
+ * A real on-disk git working tree on a feature branch off `main`, with one committed
+ * file and an uncommitted edit — so the phone's read-only diff (W3) renders a genuine
+ * working-tree-vs-HEAD diff and `workspaces.gitStatus` returns a real branch +
+ * ahead/behind. Returns the worktree path.
+ */
+function makeRealWorktree(dir: string): string {
+  mkdirSync(dir, { recursive: true });
+  git(dir, "init", "-b", "main");
+  git(dir, "config", "user.email", "grove@example.com");
+  git(dir, "config", "user.name", "Grove Test");
+  git(dir, "config", "commit.gpgsign", "false");
+  git(dir, "config", "core.autocrlf", "false");
+  writeFileSync(
+    join(dir, "greeter.ts"),
+    "export function greet(name) {\n  return 'Hello, ' + name;\n}\n",
+  );
+  git(dir, "add", "-A");
+  git(dir, "commit", "-m", "init");
+  git(dir, "checkout", "-b", "feat/diff-demo");
+  // Uncommitted edit → a real modified-file diff for the read-only viewer.
+  writeFileSync(
+    join(dir, "greeter.ts"),
+    "export function greet(name) {\n  return `Hi, ${name}!`;\n}\n",
+  );
+  return dir;
 }
 
 /**
  * Boot a REAL Grove host that ALSO serves the built PWA same-origin (ADR-0014),
- * seeded with a project + two worktrees, then mint a single-use pairing code. The
- * spec drives the pairing screen with that code → asserts the real workspace list
- * renders. No mocks: genuine static serve + tRPC + `/sync`.
+ * seeded with a project + three worktrees (one backed by a real git checkout with a
+ * live agent session), then mint a single-use pairing code. The specs drive the
+ * pairing screen with that code → assert the real workspace list, the worktree
+ * detail, the live agents, and a real file diff render. No mocks: genuine static
+ * serve + tRPC + `/sync` + git.
  */
 async function globalSetup(): Promise<void> {
   buildPwa();
@@ -79,6 +103,25 @@ async function globalSetup(): Promise<void> {
     status: "idle",
   });
 
+  // A third worktree backed by a REAL git working tree on disk — the W3 read
+  // journeys (workspace detail git status, read-only diff) attach to this one. It
+  // also carries a live agent session so the Agents tab + detail have real data.
+  const realWorktree = makeRealWorktree(join(dataDir, "wt", "real"));
+  const demo = await store.createWorkspace({
+    projectId: project.id,
+    name: "diff-demo",
+    branch: "feat/diff-demo",
+    baseBranch: "main",
+    worktreePath: realWorktree,
+    status: "running",
+  });
+  await store.createSession({
+    workspaceId: demo.id,
+    adapterId: "claude-code",
+    mode: "terminal",
+    status: "running",
+  });
+
   const eventLog = new EventLog(new PgliteEventLogStore(store, "grove-mobile-e2e"));
   const supervisor = new PtySupervisor();
   const host = await startHost({
@@ -101,7 +144,7 @@ async function globalSetup(): Promise<void> {
   });
 
   const code = await mintPairCode(host.endpoint, host.token);
-  const fixture: PairFixture = { url: BASE_URL, code };
+  const fixture: PairFixture = { url: BASE_URL, code, token: host.token };
   writeFileSync(PAIR_FILE, JSON.stringify(fixture), "utf8");
   setTestHost({ host, store, dataDir, manifestDir });
 }

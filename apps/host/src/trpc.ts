@@ -218,6 +218,30 @@ export function createAppRouter() {
         .query(({ ctx, input }) =>
           ctx.services.store.getWorkspace(asId<"WorkspaceId">(input.workspaceId)),
         ),
+      /**
+       * Live working-tree status for one worktree (P12 mobile detail): the branch
+       * plus ahead/behind versus its base branch and the dirty / changed-file
+       * counts, read straight from git. Mirrors `diffs.status` (same
+       * `worktreePathFor` anchor + WorktreeEngine + `unwrap`), but returns the
+       * porcelain summary the phone's workspace-detail view needs rather than the
+       * per-file change list. Read-only; never mutates the worktree.
+       */
+      gitStatus: t.procedure.input(workspaceIdInput).query(async ({ ctx, input }) => {
+        const workspace = await ctx.services.store.getWorkspace(
+          asId<"WorkspaceId">(input.workspaceId),
+        );
+        if (!workspace) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `unknown workspace: ${input.workspaceId}`,
+          });
+        }
+        return unwrap(
+          await new WorktreeEngine(workspace.worktreePath).status(workspace.worktreePath, {
+            compareRef: workspace.baseBranch,
+          }),
+        );
+      }),
       create: t.procedure
         .input(
           z.object({
