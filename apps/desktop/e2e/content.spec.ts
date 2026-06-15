@@ -53,10 +53,12 @@ test.describe("desktop content pane (P05 terminal + P06 diff) — real host", ()
     await expect(panel).toContainText("Hi,");
 
     // Inline edit → real save-back to the worktree via the diffs.writeFile mutation.
-    await page.getByRole("button", { name: "Edit" }).click();
+    // Scope to the diff panel: the content header now also carries an "Open in
+    // editor" action (P08), so the bare-name button query must be panel-local.
+    await panel.getByRole("button", { name: "Edit" }).click();
     const editor = page.getByTestId("diff-editor");
     await editor.fill("export function greet(name) {\n  return `Hey GROVE_SAVED_OK ${name}`;\n}\n");
-    await page.getByRole("button", { name: "Save" }).click();
+    await panel.getByRole("button", { name: "Save" }).click();
 
     // The re-fetched diff (read back from disk) reflects the saved content.
     await expect(panel).toContainText("GROVE_SAVED_OK", { timeout: 15_000 });

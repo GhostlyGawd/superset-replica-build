@@ -3,6 +3,8 @@ import { EmptyState, IconButton, TerminalFrame, Tooltip } from "@swarm/ui/react"
 import { ChevronDown, ChevronUp, TerminalSquare, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HostConnection } from "../../host-client.ts";
+import { chordFromEvent } from "../shortcuts/chord.ts";
+import type { HotkeyBindings } from "../shortcuts/registry.ts";
 import { type XtermHandle, XtermView } from "./XtermView.tsx";
 import { DEFAULT_PRESETS, presetForSlot } from "./presets.ts";
 
@@ -28,6 +30,8 @@ export interface TerminalPanelProps {
   readonly defaultShell: string;
   /** True when the Terminal tab is the visible content-pane tab (gates the keymap). */
   readonly visible: boolean;
+  /** Merged hotkey config (P09) — the terminal chords are read from here. */
+  readonly hotkeys: HotkeyBindings;
 }
 
 /**
@@ -36,7 +40,13 @@ export interface TerminalPanelProps {
  * split right/down, clear, find (search addon), preset slots (Ctrl+1–9), and
  * prev/next tab — keyed to the design-system Windows shortcuts.
  */
-export function TerminalPanel({ conn, workspace, defaultShell, visible }: TerminalPanelProps) {
+export function TerminalPanel({
+  conn,
+  workspace,
+  defaultShell,
+  visible,
+  hotkeys,
+}: TerminalPanelProps) {
   const idCounter = useRef(0);
   const nextId = useCallback((prefix: string) => `${prefix}_${idCounter.current++}`, []);
 
@@ -169,50 +179,54 @@ export function TerminalPanel({ conn, workspace, defaultShell, visible }: Termin
     [activeTabId],
   );
 
-  // Global keymap (capture phase so xterm doesn't swallow the chords) using the
-  // design-system Windows bindings (docs/recon.md Windows column, P05).
+  // Global keymap (capture phase so xterm doesn't swallow the chords). Named
+  // actions read from the merged hotkey config (P09); the numeric preset slots
+  // (Ctrl+1–9) stay a parametric rule rather than nine rebindable entries.
   useEffect(() => {
     if (!visible) {
       return;
     }
     const onKey = (e: KeyboardEvent): void => {
-      if (!e.ctrlKey) {
-        return;
-      }
       const handled = (): void => {
         e.preventDefault();
         e.stopPropagation();
       };
-      if (e.code === "Tab") {
+      // Preset slots: Ctrl+1..9 (no Shift/Alt/Meta), run the slot's command.
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && /^Digit[1-9]$/.test(e.code)) {
         handled();
-        cycleTab(e.shiftKey ? -1 : 1); // Ctrl+Shift+Tab / Ctrl+Tab
+        runPreset(Number(e.code.slice(5)));
         return;
       }
-      if (!e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code)) {
-        handled();
-        runPreset(Number(e.code.slice(5))); // Ctrl+1..9
+      const chord = chordFromEvent(e);
+      if (!chord) {
         return;
       }
-      if (e.shiftKey && !e.altKey && e.code === "KeyT") {
+      if (chord === hotkeys["terminal.nextTab"]) {
+        handled();
+        cycleTab(1);
+      } else if (chord === hotkeys["terminal.prevTab"]) {
+        handled();
+        cycleTab(-1);
+      } else if (chord === hotkeys["terminal.newTab"]) {
         handled();
         newTab();
-      } else if (e.shiftKey && !e.altKey && e.code === "KeyK") {
+      } else if (chord === hotkeys["terminal.clear"]) {
         handled();
         clearActive();
-      } else if (e.shiftKey && !e.altKey && e.code === "KeyF") {
+      } else if (chord === hotkeys["terminal.find"]) {
         handled();
         toggleFind();
-      } else if (e.shiftKey && e.altKey && e.code === "KeyD") {
+      } else if (chord === hotkeys["terminal.splitDown"]) {
         handled();
-        split("down"); // Ctrl+Shift+Alt+D
-      } else if (e.shiftKey && !e.altKey && e.code === "KeyD") {
+        split("down");
+      } else if (chord === hotkeys["terminal.splitRight"]) {
         handled();
-        split("right"); // Ctrl+Shift+D
+        split("right");
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [visible, cycleTab, runPreset, newTab, clearActive, toggleFind, split]);
+  }, [visible, hotkeys, cycleTab, runPreset, newTab, clearActive, toggleFind, split]);
 
   const setHandle = useCallback((paneId: string, handle: XtermHandle | null) => {
     if (handle) {

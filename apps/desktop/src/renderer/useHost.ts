@@ -32,6 +32,8 @@ export interface HostState {
   readonly conn: HostConnection | null;
   readonly error: string | null;
   readonly retry: () => void;
+  /** Re-query `workspaces.list` and update the rail (after create / open-project). */
+  readonly refresh: () => void;
 }
 
 /** The status the UI should show: a live event overrides the materialized row. */
@@ -61,6 +63,23 @@ export function useHost(): HostState {
   const [nonce, setNonce] = useState(0);
 
   const retry = useCallback(() => setNonce((n) => n + 1), []);
+
+  // Re-query the materialized workspace list (e.g. after creating a worktree or
+  // opening a project) so the rail reflects host changes without a reconnect.
+  const refresh = useCallback(() => {
+    if (!client) {
+      return;
+    }
+    void (async () => {
+      try {
+        const list = await client.workspaces.list.query(undefined);
+        setWorkspaces(list);
+      } catch {
+        // A transient refresh failure leaves the existing list in place; the next
+        // create/open (or a reconnect) retries. Never crash the shell on a refetch.
+      }
+    })();
+  }, [client]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the (re)connect is intentionally keyed on the retry nonce; the body uses only stable setters + module functions.
   useEffect(() => {
@@ -141,5 +160,5 @@ export function useHost(): HostState {
     };
   }, [nonce]);
 
-  return { phase, workspaces, liveStatus, syncState, info, client, conn, error, retry };
+  return { phase, workspaces, liveStatus, syncState, info, client, conn, error, retry, refresh };
 }

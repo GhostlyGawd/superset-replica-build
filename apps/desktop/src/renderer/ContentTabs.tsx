@@ -4,6 +4,7 @@ import { GitCompare, TerminalSquare } from "lucide-react";
 import { useState } from "react";
 import type { HostConnection, HostTrpcClient } from "../host-client.ts";
 import { DiffPanel } from "./diff/DiffPanel.tsx";
+import type { HotkeyBindings } from "./shortcuts/registry.ts";
 import { TerminalPanel } from "./terminal/TerminalPanel.tsx";
 
 export interface ContentTabsProps {
@@ -12,6 +13,10 @@ export interface ContentTabsProps {
   readonly workspace: Workspace;
   /** Host OS — picks the reliably-present default interactive shell. */
   readonly os: string;
+  /** Merged hotkey config the terminal keymap reads from (P09). */
+  readonly hotkeys: HotkeyBindings;
+  /** True while a modal dialog owns the keyboard — suspends the terminal keymap. */
+  readonly suspendKeymaps: boolean;
 }
 
 /**
@@ -19,7 +24,14 @@ export interface ContentTabsProps {
  * selected worktree. The terminal stays mounted across tab switches (its live PTY
  * sessions survive), so it is toggled with `hidden` rather than unmounted.
  */
-export function ContentTabs({ client, conn, workspace, os }: ContentTabsProps) {
+export function ContentTabs({
+  client,
+  conn,
+  workspace,
+  os,
+  hotkeys,
+  suspendKeymaps,
+}: ContentTabsProps) {
   const [tab, setTab] = useState<"terminal" | "diff">("terminal");
   const defaultShell = os === "windows" ? "powershell" : "bash";
 
@@ -40,7 +52,8 @@ export function ContentTabs({ client, conn, workspace, os }: ContentTabsProps) {
             conn={conn}
             workspace={workspace}
             defaultShell={defaultShell}
-            visible={tab === "terminal"}
+            visible={tab === "terminal" && !suspendKeymaps}
+            hotkeys={hotkeys}
           />
         </div>
         {tab === "diff" ? (

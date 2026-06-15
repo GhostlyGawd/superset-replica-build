@@ -7,6 +7,10 @@ import type { RunningHost } from "@swarm/host/daemon";
 /** Where globalSetup writes the live `{endpoint, token}` for the test workers. */
 export const CONN_FILE = join(tmpdir(), "grove-e2e-conn.json");
 
+/** Open-in-external test seam: the host appends each launch it WOULD perform here
+ *  (one JSON line) instead of spawning a real GUI app, so the e2e can assert it. */
+export const EXTERNAL_CAPTURE_FILE = join(tmpdir(), "grove-e2e-external.log");
+
 export interface TestHostHandle {
   readonly host: RunningHost;
   readonly store: Store;
@@ -34,4 +38,5 @@ export async function teardownTestHost(): Promise<void> {
     rmSync(path, { recursive: true, force: true });
   }
   rmSync(CONN_FILE, { force: true });
+  rmSync(EXTERNAL_CAPTURE_FILE, { force: true });
 }

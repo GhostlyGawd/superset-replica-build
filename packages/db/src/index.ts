@@ -88,6 +88,15 @@ export interface FileChangeRow {
   readonly computedAt: string;
 }
 
+/** A persisted keyboard-shortcut override (P09). `scope` names the surface the
+ *  binding applies to (e.g. `desktop`); `null` is the all-surfaces default. */
+export interface HotkeyOverride {
+  readonly id: string;
+  readonly actionId: string;
+  readonly binding: string;
+  readonly scope: string | null;
+}
+
 /** Table names in one place so schema and queries cannot drift. */
 export const TABLES = {
   projects: "projects",

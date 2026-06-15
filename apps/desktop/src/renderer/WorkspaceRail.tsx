@@ -4,11 +4,13 @@ import {
   Button,
   EmptyState,
   ErrorState,
+  IconButton,
   Input,
   ListRow,
   Skeleton,
+  Tooltip,
 } from "@swarm/ui/react";
-import { Boxes, RefreshCw, Search, Unplug } from "lucide-react";
+import { Boxes, FolderGit2, Plus, RefreshCw, Search, Unplug } from "lucide-react";
 import { type HostState, effectiveStatus } from "./useHost.ts";
 
 interface WorkspaceRailProps {
@@ -17,6 +19,10 @@ interface WorkspaceRailProps {
   readonly onFilter: (value: string) => void;
   readonly selectedId: string | null;
   readonly onSelect: (id: string) => void;
+  readonly onNewWorkspace: () => void;
+  readonly onOpenProject: () => void;
+  /** False when no project is loaded yet (new-worktree needs one). */
+  readonly canCreate: boolean;
 }
 
 const RETRY_ICON = <RefreshCw className="size-3.5" aria-hidden />;
@@ -29,8 +35,12 @@ export function WorkspaceRail({
   onFilter,
   selectedId,
   onSelect,
+  onNewWorkspace,
+  onOpenProject,
+  canCreate,
 }: WorkspaceRailProps) {
   const { phase, workspaces, liveStatus } = host;
+  const connected = phase === "connected";
   const needle = filter.trim().toLowerCase();
   const visible = needle
     ? workspaces.filter(
@@ -44,12 +54,34 @@ export function WorkspaceRail({
       data-testid="workspace-rail"
       className="flex min-h-0 w-64 shrink-0 flex-col border-r border-line bg-surface"
     >
-      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
+      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-2 pl-3">
         <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg">
           <Boxes className="size-4 shrink-0 text-accent-fg" aria-hidden />
           Worktrees
+          {connected ? <Badge tone="neutral">{workspaces.length}</Badge> : null}
         </span>
-        {phase === "connected" ? <Badge tone="neutral">{workspaces.length}</Badge> : null}
+        <span className="flex shrink-0 items-center gap-0.5">
+          <Tooltip label="Open project…">
+            <IconButton
+              size="sm"
+              aria-label="Open project"
+              onClick={onOpenProject}
+              disabled={!connected}
+            >
+              <FolderGit2 />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={canCreate ? "New worktree…" : "Open a project first"}>
+            <IconButton
+              size="sm"
+              aria-label="New worktree"
+              onClick={onNewWorkspace}
+              disabled={!connected || !canCreate}
+            >
+              <Plus />
+            </IconButton>
+          </Tooltip>
+        </span>
       </header>
 
       <div className="shrink-0 p-2">

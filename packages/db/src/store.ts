@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { PGlite } from "@electric-sql/pglite";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull } from "drizzle-orm";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
@@ -14,6 +14,7 @@ import {
   type AgentPreset,
   DEFAULT_DATABASE_URL,
   type EventRow,
+  type HotkeyOverride,
   type Project,
   type Session,
   type SessionMode,
@@ -21,7 +22,15 @@ import {
   type WorkspaceStatus,
 } from "./index.ts";
 import { schema } from "./schema.ts";
-import { events, agentPresets, projects, sessions, syncCursors, workspaces } from "./schema.ts";
+import {
+  events,
+  agentPresets,
+  hotkeyOverrides,
+  projects,
+  sessions,
+  syncCursors,
+  workspaces,
+} from "./schema.ts";
 
 /**
  * @swarm/db store/client factory (spec §3.2, ADR-0003). Opens the single source
@@ -192,6 +201,15 @@ export interface Store {
   listSessions(workspaceId: WorkspaceId): Promise<Session[]>;
   getSession(id: SessionId): Promise<Session | null>;
   endSession(id: SessionId, exitCode: number, status?: string): Promise<Session>;
+  // Hotkey overrides (customizable shortcuts, P09)
+  listHotkeyOverrides(scope?: string): Promise<HotkeyOverride[]>;
+  setHotkeyOverride(input: {
+    actionId: string;
+    binding: string;
+    scope?: string;
+  }): Promise<HotkeyOverride>;
+  clearHotkeyOverride(actionId: string, scope?: string): Promise<void>;
+  clearHotkeyOverrides(scope?: string): Promise<void>;
   // Event log (sync backbone)
   appendEvent(input: AppendEventInput): Promise<EventRow>;
   readEventsFromSeq(
@@ -354,6 +372,66 @@ function buildStore(db: Db, close: () => Promise<void>): Store {
         .where(eq(sessions.id, id))
         .returning();
       return one(rows, "endSession");
+    },
+
+    async listHotkeyOverrides(scope) {
+      const filter =
+        scope === undefined ? isNull(hotkeyOverrides.osScope) : eq(hotkeyOverrides.osScope, scope);
+      const rows = await db
+        .select()
+        .from(hotkeyOverrides)
+        .where(filter)
+        .orderBy(asc(hotkeyOverrides.actionId));
+      return rows.map((row) => ({
+        id: row.id,
+        actionId: row.actionId,
+        binding: row.binding,
+        scope: row.osScope,
+      }));
+    },
+    async setHotkeyOverride(input) {
+      const scope = input.scope ?? null;
+      const filter = and(
+        eq(hotkeyOverrides.actionId, input.actionId),
+        scope === null ? isNull(hotkeyOverrides.osScope) : eq(hotkeyOverrides.osScope, scope),
+      );
+      // Delete-then-insert rather than ON CONFLICT: Postgres treats NULL os_scope
+      // values as DISTINCT, so the (action_id, os_scope) unique index would let a
+      // NULL-scoped upsert duplicate. This keeps one row per (action, scope) for
+      // any scope, NULL included.
+      await db.delete(hotkeyOverrides).where(filter);
+      const rows = await db
+        .insert(hotkeyOverrides)
+        .values({
+          id: `hk_${crypto.randomUUID()}`,
+          actionId: input.actionId,
+          binding: input.binding,
+          osScope: scope,
+        })
+        .returning();
+      const row = one(rows, "setHotkeyOverride");
+      return { id: row.id, actionId: row.actionId, binding: row.binding, scope: row.osScope };
+    },
+    async clearHotkeyOverride(actionId, scope) {
+      await db
+        .delete(hotkeyOverrides)
+        .where(
+          and(
+            eq(hotkeyOverrides.actionId, actionId),
+            scope === undefined
+              ? isNull(hotkeyOverrides.osScope)
+              : eq(hotkeyOverrides.osScope, scope),
+          ),
+        );
+    },
+    async clearHotkeyOverrides(scope) {
+      await db
+        .delete(hotkeyOverrides)
+        .where(
+          scope === undefined
+            ? isNull(hotkeyOverrides.osScope)
+            : eq(hotkeyOverrides.osScope, scope),
+        );
     },
 
     async appendEvent(input) {

@@ -3,11 +3,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "@swarm/db/store";
-import { PgliteEventLogStore, startHost } from "@swarm/host/daemon";
+import { EXTERNAL_LAUNCH_CAPTURE_ENV, PgliteEventLogStore, startHost } from "@swarm/host/daemon";
 import { PtySupervisor } from "@swarm/pty-supervisor";
 import { asId } from "@swarm/shared";
 import { EventLog } from "@swarm/sync";
-import { CONN_FILE, setTestHost } from "./host-fixture.ts";
+import { CONN_FILE, EXTERNAL_CAPTURE_FILE, setTestHost } from "./host-fixture.ts";
 
 /** Run git synchronously during fixture setup; throws on failure (setup must be sound). */
 function git(cwd: string, ...args: string[]): void {
@@ -53,8 +53,16 @@ async function globalSetup(): Promise<void> {
   const manifestDir = join(tmpdir(), `grove-e2e-host-${stamp}`);
   mkdirSync(manifestDir, { recursive: true });
 
+  // A REAL base repo on `main` with a commit, so the New-worktree dialog can cut a
+  // genuine git worktree from it (B2: workspaces.create) — not a stubbed path.
+  const baseRepo = makeRealWorktree(join(dataDir, "repo"));
+
   const store = await openStore({ dataDir });
-  const project = await store.createProject({ name: "superset-replica", defaultBranch: "main" });
+  const project = await store.createProject({
+    name: "superset-replica",
+    localPath: baseRepo,
+    defaultBranch: "main",
+  });
   await store.createWorkspace({
     projectId: project.id,
     name: "feat/login-rework",
@@ -84,6 +92,12 @@ async function globalSetup(): Promise<void> {
     status: "idle",
   });
 
+  // Route open-in-external (P08) through the capture seam: the host records the
+  // launch it WOULD perform instead of spawning a GUI app on the runner. Start
+  // each run from an empty log. This is a TEST SEAM, not a user-path mock.
+  writeFileSync(EXTERNAL_CAPTURE_FILE, "", "utf8");
+  process.env[EXTERNAL_LAUNCH_CAPTURE_ENV] = EXTERNAL_CAPTURE_FILE;
+
   const hostId = asId<"HostId">(`grove-e2e-${stamp}`);
   const eventLog = new EventLog(new PgliteEventLogStore(store, hostId));
   const supervisor = new PtySupervisor();
@@ -96,6 +110,8 @@ async function globalSetup(): Promise<void> {
     port: 0,
     manifestDir,
     heartbeatMs: 0,
+    // Created worktrees land in the temp data dir, never the real ~/.grove.
+    worktreesRoot: join(dataDir, "worktrees"),
   });
 
   // One live transition over the sync log so the subscribe path delivers an event.

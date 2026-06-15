@@ -26,6 +26,7 @@ export {
 export { PgliteEventLogStore } from "./pglite-event-log-store.ts";
 export {
   createAppRouter,
+  createAppCaller,
   osName,
   defaultShellFor,
   type AppRouter,
@@ -33,6 +34,13 @@ export {
   type HostServices,
   type OsName,
 } from "./trpc.ts";
+export {
+  openExternal,
+  EXTERNAL_LAUNCH_CAPTURE_ENV,
+  type ExternalTarget,
+  type LaunchSpec,
+} from "./open-external.ts";
+export { probeGitRepo, type RepoInfo } from "./repo-probe.ts";
 export {
   createTerminalServer,
   type TerminalServer,

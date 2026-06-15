@@ -37,6 +37,8 @@ export interface ProjectsRouter {
     localPath?: string;
     clone?: boolean;
   }): Promise<Project>;
+  /** Open an existing git repo on the host as a project + seed a worktree (P08). */
+  open(input: { path: string; name?: string }): Promise<{ project: Project; workspace: Workspace }>;
   get(input: { projectId: ProjectId }): Promise<Project>;
   remove(input: { projectId: ProjectId }): Promise<Ok>;
 }
@@ -49,8 +51,9 @@ export interface WorkspaceStatusUpdate {
   readonly lastActivityAt: string;
 }
 
-/** Targets for `workspaces.openExternal` (P08). */
-export type ExternalTarget = "vscode" | "cursor" | "terminal" | "folder";
+/** Targets for `workspaces.openExternal` (P08): open the worktree on the host in
+ *  an editor, a terminal, or the OS file manager. */
+export type ExternalTarget = "editor" | "terminal" | "folder";
 
 export interface WorkspacesRouter {
   list(input: { projectId?: ProjectId }): Promise<readonly Workspace[]>;

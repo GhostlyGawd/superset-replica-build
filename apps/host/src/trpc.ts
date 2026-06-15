@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { BUILTIN_ADAPTERS } from "@swarm/agent-adapters";
 import type { Store } from "@swarm/db/store";
 import { WorktreeEngine } from "@swarm/git-worktree";
@@ -7,7 +7,23 @@ import { asId } from "@swarm/shared";
 import type { EventLog } from "@swarm/sync";
 import { TRPCError, initTRPC } from "@trpc/server";
 import { z } from "zod";
+import { openExternal } from "./open-external.ts";
 import type { Orchestrator } from "./orchestrator.ts";
+import { probeGitRepo } from "./repo-probe.ts";
+
+/** Settings persistence is scoped to the desktop surface (P09). */
+const DESKTOP_SCOPE = "desktop";
+
+/** Map a stored POSIX worktree path back to an OS-native one for launching. */
+function toOsPath(posixPath: string): string {
+  return process.platform === "win32" ? posixPath.replace(/\//g, "\\") : posixPath;
+}
+
+/** A url/path-safe slug for a workspace branch/dir, mirroring the orchestrator. */
+function slugify(name: string): string {
+  const slug = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : "workspace";
+}
 
 /** OS families the host and clients distinguish (architecture §5). */
 export type OsName = "windows" | "macos" | "linux";
@@ -182,6 +198,141 @@ export function createAppRouter() {
           });
           return prepared.workspace;
         }),
+      /**
+       * Open-in-external (P08): open the workspace's worktree on the HOST (where it
+       * physically lives, so this works for a local or remote host) in an editor,
+       * a terminal, or the OS file manager — cross-platform via `child_process`.
+       */
+      openExternal: t.procedure
+        .input(
+          z.object({
+            workspaceId: z.string(),
+            target: z.enum(["editor", "terminal", "folder"]),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          const workspace = await ctx.services.store.getWorkspace(
+            asId<"WorkspaceId">(input.workspaceId),
+          );
+          if (!workspace) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `unknown workspace: ${input.workspaceId}`,
+            });
+          }
+          try {
+            await openExternal(input.target, toOsPath(workspace.worktreePath));
+          } catch (error) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+          return { ok: true as const };
+        }),
+    }),
+
+    /**
+     * Projects (P08 open-project). `open` validates that a path is a REAL git
+     * working tree on the host, registers it as a project (idempotently by repo
+     * root), and seeds a first isolated worktree from its current branch.
+     */
+    projects: t.router({
+      list: t.procedure.query(({ ctx }) => ctx.services.store.listProjects()),
+      open: t.procedure
+        .input(
+          z.object({
+            path: z.string(),
+            /** Optional name for the seeded workspace (defaults to the repo folder). */
+            name: z.string().optional(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          let repo: { root: string; defaultBranch: string };
+          try {
+            repo = await probeGitRepo(input.path);
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+          // Reuse an existing project for this repo root, else register it.
+          const existing = (await ctx.services.store.listProjects()).find(
+            (p) => p.localPath === repo.root,
+          );
+          const project =
+            existing ??
+            (await ctx.services.store.createProject({
+              name: basename(repo.root) || "project",
+              localPath: repo.root,
+              defaultBranch: repo.defaultBranch,
+            }));
+
+          const baseName = input.name?.trim() || basename(repo.root) || "workspace";
+          // A short suffix keeps repeated opens from colliding on branch/worktree path.
+          const suffix = Date.now().toString(36).slice(-4);
+          const name = `${baseName}-${suffix}`;
+          const prepared = await ctx.services.orchestrator.createWorkspace({
+            project,
+            name,
+            branch: `grove/${slugify(name)}`,
+            baseBranch: repo.defaultBranch,
+            worktreesDir: join(ctx.services.orchestrator.worktreesRoot, project.id),
+          });
+          return { project, workspace: prepared.workspace };
+        }),
+    }),
+
+    /**
+     * Settings (P09): persist customizable keyboard shortcuts in PGlite, scoped to
+     * the desktop surface. The renderer holds the default registry and persists
+     * only the user's overrides here; `getHotkeys` returns those overrides.
+     */
+    settings: t.router({
+      getHotkeys: t.procedure.query(async ({ ctx }) => {
+        const rows = await ctx.services.store.listHotkeyOverrides(DESKTOP_SCOPE);
+        return rows.map((row) => ({ actionId: row.actionId, binding: row.binding }));
+      }),
+      setHotkey: t.procedure
+        .input(z.object({ actionId: z.string().min(1), binding: z.string().min(1) }))
+        .mutation(async ({ ctx, input }) => {
+          const row = await ctx.services.store.setHotkeyOverride({
+            actionId: input.actionId,
+            binding: input.binding,
+            scope: DESKTOP_SCOPE,
+          });
+          return { actionId: row.actionId, binding: row.binding };
+        }),
+      setHotkeys: t.procedure
+        .input(
+          z.object({
+            bindings: z.array(
+              z.object({ actionId: z.string().min(1), binding: z.string().min(1) }),
+            ),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          for (const entry of input.bindings) {
+            await ctx.services.store.setHotkeyOverride({
+              actionId: entry.actionId,
+              binding: entry.binding,
+              scope: DESKTOP_SCOPE,
+            });
+          }
+          const rows = await ctx.services.store.listHotkeyOverrides(DESKTOP_SCOPE);
+          return rows.map((row) => ({ actionId: row.actionId, binding: row.binding }));
+        }),
+      resetHotkey: t.procedure
+        .input(z.object({ actionId: z.string().min(1) }))
+        .mutation(async ({ ctx, input }) => {
+          await ctx.services.store.clearHotkeyOverride(input.actionId, DESKTOP_SCOPE);
+          return { ok: true as const };
+        }),
+      resetHotkeys: t.procedure.mutation(async ({ ctx }) => {
+        await ctx.services.store.clearHotkeyOverrides(DESKTOP_SCOPE);
+        return { ok: true as const };
+      }),
     }),
 
     sessions: t.router({
@@ -245,3 +396,11 @@ export function defaultShellFor(os: OsName): string {
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;
+
+/**
+ * Build an in-process tRPC caller over a real {@link HostServices} — the integration
+ * tests' real round-trip path (no HTTP/WS, so it runs under Bun without node-pty).
+ */
+export function createAppCaller(services: HostServices) {
+  return t.createCallerFactory(createAppRouter())({ services });
+}
