@@ -1,0 +1,37 @@
+node_modules/
+dist/
+build/
+out/
+.turbo/
+.cache/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+
+# local env / secrets
+.env
+.env.*
+!.env.example
+
+# embedded db data
+.data/
+*.db
+*.sqlite
+
+# electron build artifacts
+release/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.nsis
+
+# test/e2e
+playwright-report/
+test-results/
+.playwright/
+
+# evidence raw captures kept, but ignore large traces by default (committed selectively)
+evidence/**/*.zip
+evidence/**/*.webm

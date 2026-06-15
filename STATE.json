@@ -1,0 +1,54 @@
+{
+  "$schema_note": "Canonical pointer to where the build is. Re-derive context from this + blackboard files; do not scroll chat history.",
+  "project": {
+    "codename": "SWARM",
+    "final_name": null,
+    "tagline": "Orchestrate swarms of CLI coding agents in parallel across isolated git worktrees.",
+    "replica_of": "https://github.com/superset-sh/superset",
+    "workspace_dir": "D:/GitHub Projects/superset-replica-build",
+    "github_repo": null,
+    "linear_project": null
+  },
+  "host_os": "windows",
+  "current_phase": 0,
+  "phase_status": {
+    "0_recon_architecture": "in_progress",
+    "1_brand_design": "not_started",
+    "2_host_engine": "not_started",
+    "3_desktop_client": "not_started",
+    "4_mobile_client": "not_started",
+    "5_platform_setup": "not_started",
+    "6_hardening_launch": "not_started"
+  },
+  "version": "0.0.0",
+  "next_release_target": "0.1.0",
+  "toolchain": {
+    "git": "2.53.0", "gh": "2.89.0 (authed: GhostlyGawd)", "node": "24.14.1",
+    "npm": "11.11.0", "bun": "installed", "pnpm": "installed",
+    "jq": "1.8.1", "rg": "installed (scoop)", "caddy": "installed (scoop)",
+    "docker": "MISSING (daemon not running)", "psql": "MISSING"
+  },
+  "stack_decision": {
+    "runtime": "Bun (+ Node 24 fallback)",
+    "monorepo": "Turborepo",
+    "build": "Vite",
+    "lint_format": "Biome",
+    "api": "tRPC over Hono",
+    "db": "PGlite (embedded Postgres, WASM) via Drizzle ORM; real Postgres optional",
+    "sync": "self-hosted WebSocket + PGlite-backed append-only event log + resume tokens",
+    "pty": "node-pty (ConPTY on Windows) [RISK: Node24 prebuilds — Phase 2 validation gate]",
+    "tree_kill": "tree-kill (taskkill /T on Windows)",
+    "desktop_shell": "Electron + electron-builder (NSIS)",
+    "mobile": "PWA-first (service worker, Web Push/VAPID); Capacitor optional/deferred",
+    "ui": "React + Tailwind; Fontsource + Lucide/Phosphor (OSS)",
+    "tunnel": "cloudflared / localtunnel (OSS) — Phase 5"
+  },
+  "next_actions": [
+    "Phase 0 recon subagent: study original Superset repo, write docs/architecture.md + docs/recon.md",
+    "Create GitHub private repo + initial commit",
+    "Create Linear project + milestones + parity issues",
+    "Scaffold Turborepo skeleton (compiles, CI matrix green) -> cut v0.1.0"
+  ],
+  "blocked": [],
+  "last_updated": "2026-06-14"
+}

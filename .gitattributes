@@ -1,0 +1,24 @@
+# Normalize line endings across OSes so worktrees behave identically (spec §1, §3.7).
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Shell scripts always LF
+*.sh    text eol=lf
+
+# Binary assets — never normalize
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.icns  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.node  binary
+*.wasm  binary
