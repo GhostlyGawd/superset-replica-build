@@ -1,0 +1,23 @@
+{
+  "name": "@swarm/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@swarm/host": "workspace:*",
+    "@swarm/ui": "workspace:*"
+  }
+}
