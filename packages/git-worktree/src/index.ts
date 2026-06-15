@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdir, readdir, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { ChangeType } from "@swarm/db";
 import type { Result, WorkspaceId } from "@swarm/shared";
@@ -361,6 +361,105 @@ function parseWorktreeList(out: string): WorktreeInfo[] {
   return records;
 }
 
+// --- diff parsing (P06) -----------------------------------------------------
+
+/** Map a `git status --porcelain` XY code to the diff viewer's change type. */
+function changeTypeFromPorcelain(code: string): ChangeType {
+  if (code.includes("R")) {
+    return "renamed";
+  }
+  if (code.includes("D")) {
+    return "deleted";
+  }
+  // `??` (untracked) and `A` (staged add) both surface as a brand-new file.
+  if (code.includes("?") || code.includes("A")) {
+    return "added";
+  }
+  return "modified";
+}
+
+/** Parse one `@@ -a,b +c,d @@` hunk header; lines default to 1 when omitted. */
+function parseHunkHeader(
+  header: string,
+): { oldStart: number; oldLines: number; newStart: number; newLines: number } | null {
+  const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(header);
+  if (!match) {
+    return null;
+  }
+  return {
+    oldStart: Number(match[1]),
+    oldLines: match[2] === undefined ? 1 : Number(match[2]),
+    newStart: Number(match[3]),
+    newLines: match[4] === undefined ? 1 : Number(match[4]),
+  };
+}
+
+/**
+ * Parse a unified `git diff` patch body into structured hunks. Each hunk keeps its
+ * raw `+`/`-`/` `-prefixed lines so the renderer can assign gutter line numbers; the
+ * file header lines (`diff --git`, `index`, `+++`, `---`) are skipped.
+ */
+function parseUnifiedDiff(patch: string): DiffHunk[] {
+  const hunks: DiffHunk[] = [];
+  let current: {
+    header: string;
+    lines: string[];
+    meta: ReturnType<typeof parseHunkHeader>;
+  } | null = null;
+  const flush = (): void => {
+    if (current?.meta) {
+      hunks.push({
+        header: current.header,
+        oldStart: current.meta.oldStart,
+        oldLines: current.meta.oldLines,
+        newStart: current.meta.newStart,
+        newLines: current.meta.newLines,
+        lines: current.lines,
+      });
+    }
+    current = null;
+  };
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@")) {
+      flush();
+      current = { header: line, lines: [], meta: parseHunkHeader(line) };
+      continue;
+    }
+    if (!current) {
+      continue; // pre-hunk file header (diff --git / index / --- / +++)
+    }
+    if (line.startsWith("\\")) {
+      continue; // "\ No newline at end of file"
+    }
+    if (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) {
+      current.lines.push(line);
+    }
+  }
+  flush();
+  return hunks;
+}
+
+/** Build a synthetic single hunk for a wholly-added or wholly-removed file. */
+function wholeFileHunk(text: string, kind: "add" | "remove"): DiffHunk[] {
+  if (text.length === 0) {
+    return [];
+  }
+  const raw = text.endsWith("\n") ? text.slice(0, -1) : text;
+  const bodyLines = raw.split("\n");
+  const sign = kind === "add" ? "+" : "-";
+  const n = bodyLines.length;
+  return [
+    {
+      header: kind === "add" ? `@@ -0,0 +1,${n} @@` : `@@ -1,${n} +0,0 @@`,
+      oldStart: kind === "add" ? 0 : 1,
+      oldLines: kind === "add" ? 0 : n,
+      newStart: kind === "add" ? 1 : 0,
+      newLines: kind === "add" ? n : 0,
+      lines: bodyLines.map((l) => `${sign}${l}`),
+    },
+  ];
+}
+
 // --- engine -----------------------------------------------------------------
 
 /**
@@ -684,5 +783,193 @@ export class WorktreeEngine {
       // or reported as a short/different-cased path (Windows).
       path: canonicalPath(target),
     });
+  }
+
+  // --- diff viewer (P06) ----------------------------------------------------
+
+  /**
+   * The working-tree changes of the worktree at `worktreePath` versus its HEAD —
+   * the set the diff viewer lists (P06). Combines `git status --porcelain` (which
+   * files, and how) with `git diff --numstat HEAD` (line counts); untracked files
+   * carry no HEAD baseline, so their additions are the on-disk line count. Paths
+   * are reported POSIX-normalized (spec §5) and quote-disabled so spaces survive.
+   */
+  async changes(worktreePath: string): Promise<Result<FileChange[], GitError>> {
+    const target = resolve(worktreePath);
+    const status = await runGit([
+      "-C",
+      target,
+      "-c",
+      "core.quotePath=false",
+      "status",
+      "--porcelain",
+    ]);
+    if (!status.ok) {
+      return err({
+        code: "not_a_worktree",
+        message: `not a git worktree: ${target}`,
+        stderr: status.error.stderr,
+      });
+    }
+
+    // Tracked add/del counts vs HEAD in one shot; untracked files are absent here.
+    const numstatMap = new Map<string, { additions: number; deletions: number }>();
+    const numstat = await runGit([
+      "-C",
+      target,
+      "-c",
+      "core.quotePath=false",
+      "diff",
+      "--numstat",
+      "HEAD",
+    ]);
+    if (numstat.ok) {
+      for (const line of numstat.value.split(/\r?\n/)) {
+        if (line.length === 0) {
+          continue;
+        }
+        const [add, del, ...rest] = line.split("\t");
+        const path = rest.join("\t");
+        numstatMap.set(path, {
+          additions: add === "-" ? 0 : Number(add) || 0,
+          deletions: del === "-" ? 0 : Number(del) || 0,
+        });
+      }
+    }
+
+    const changes: FileChange[] = [];
+    for (const line of status.value.split(/\r?\n/)) {
+      if (line.length < 4) {
+        continue;
+      }
+      const code = line.slice(0, 2);
+      let path = line.slice(3);
+      if (code.includes("R")) {
+        // "R  old -> new" — the new path is what the worktree now holds.
+        const arrow = path.split(" -> ");
+        path = arrow[arrow.length - 1] ?? path;
+      }
+      const changeType = changeTypeFromPorcelain(code);
+      let counts = numstatMap.get(path);
+      if (!counts && code.includes("?")) {
+        // Untracked: count the on-disk lines as pure additions.
+        try {
+          const body = await readFile(join(target, path), "utf8");
+          const trimmed = body.endsWith("\n") ? body.slice(0, -1) : body;
+          counts = {
+            additions: trimmed.length === 0 ? 0 : trimmed.split("\n").length,
+            deletions: 0,
+          };
+        } catch {
+          counts = { additions: 0, deletions: 0 };
+        }
+      }
+      changes.push({
+        path: toPosixPath(path),
+        changeType,
+        additions: counts?.additions ?? 0,
+        deletions: counts?.deletions ?? 0,
+      });
+    }
+    return ok(changes);
+  }
+
+  /**
+   * The full diff of one file in the worktree at `worktreePath` versus HEAD: parsed
+   * hunks plus the old (committed) and new (on-disk) text the inline editor seeds
+   * from. Untracked files (no HEAD blob) and deletions are synthesized into a single
+   * whole-file hunk so the viewer renders them like any other change.
+   */
+  async fileDiff(worktreePath: string, relPath: string): Promise<Result<FileDiff, GitError>> {
+    const target = resolve(worktreePath);
+    const posixPath = toPosixPath(relPath);
+
+    const show = await runGit(["-C", target, "show", `HEAD:${posixPath}`]);
+    const oldText = show.ok ? show.value : "";
+
+    let newText = "";
+    try {
+      newText = await readFile(join(target, relPath), "utf8");
+    } catch {
+      newText = ""; // deleted from the working tree
+    }
+
+    const patch = await runGit([
+      "-C",
+      target,
+      "-c",
+      "core.quotePath=false",
+      "diff",
+      "HEAD",
+      "--",
+      posixPath,
+    ]);
+
+    let hunks: DiffHunk[] = [];
+    if (patch.ok && patch.value.trim().length > 0) {
+      hunks = parseUnifiedDiff(patch.value);
+    } else if (oldText.length === 0 && newText.length > 0) {
+      hunks = wholeFileHunk(newText, "add"); // untracked / brand-new file
+    } else if (oldText.length > 0 && newText.length === 0) {
+      hunks = wholeFileHunk(oldText, "remove"); // deleted
+    }
+
+    return ok({ path: posixPath, hunks, oldText, newText });
+  }
+
+  /**
+   * Write `content` back to a file in the worktree at `worktreePath` (the inline
+   * editor's save, P06). The relative path is resolved and confined to the worktree
+   * root — a traversal attempt (`../`) is rejected — and intermediate directories
+   * are created so a new file can be saved. A real file write, never a mock.
+   */
+  async writeFile(
+    worktreePath: string,
+    relPath: string,
+    content: string,
+  ): Promise<Result<true, GitError>> {
+    const root = resolve(worktreePath);
+    const target = resolve(root, relPath);
+    const rel = relative(root, target);
+    if (rel === "" || rel.startsWith("..") || rel.startsWith(`..${sep}`)) {
+      return err({ code: "invalid_path", message: `path escapes the worktree: ${relPath}` });
+    }
+    try {
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, content, "utf8");
+      return ok(true);
+    } catch (error) {
+      return err({
+        code: "git_failed",
+        message: error instanceof Error ? error.message : `failed to write ${relPath}`,
+      });
+    }
+  }
+
+  /**
+   * Discard the working-tree changes to one file: restore a tracked file to its
+   * HEAD blob, or delete an untracked file. Confined to the worktree root.
+   */
+  async discardFile(worktreePath: string, relPath: string): Promise<Result<true, GitError>> {
+    const root = resolve(worktreePath);
+    const target = resolve(root, relPath);
+    const rel = relative(root, target);
+    if (rel === "" || rel.startsWith("..") || rel.startsWith(`..${sep}`)) {
+      return err({ code: "invalid_path", message: `path escapes the worktree: ${relPath}` });
+    }
+    const restore = await runGit(["-C", root, "checkout", "HEAD", "--", toPosixPath(relPath)]);
+    if (restore.ok) {
+      return ok(true);
+    }
+    // Untracked file (no HEAD entry) — remove it from the working tree.
+    try {
+      await rm(target, { force: true });
+      return ok(true);
+    } catch (error) {
+      return err({
+        code: "git_failed",
+        message: error instanceof Error ? error.message : `failed to discard ${relPath}`,
+      });
+    }
   }
 }

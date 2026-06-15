@@ -1,6 +1,7 @@
 import type { Workspace } from "@swarm/db";
 import { Badge, EmptyState, Spinner, StatusBadge } from "@swarm/ui/react";
-import { GitCompare, LayoutGrid, TerminalSquare } from "lucide-react";
+import { LayoutGrid, TerminalSquare } from "lucide-react";
+import { ContentTabs } from "./ContentTabs.tsx";
 import { type HostState, effectiveStatus } from "./useHost.ts";
 
 interface ContentPaneProps {
@@ -9,12 +10,13 @@ interface ContentPaneProps {
 }
 
 /**
- * The main pane. For the foundation it shows the connection-aware shell of the
- * operator cockpit; the live terminal and diff viewer mount into the recessed
- * well in later Phase-3 waves.
+ * The main pane: a connection-aware header plus the Terminal (P05) | Diff (P06)
+ * tabbed surface for the selected worktree, both wired to the real host (live PTY
+ * stream + real git diff). Every non-connected phase renders a real state, not a
+ * crash.
  */
 export function ContentPane({ host, selected }: ContentPaneProps) {
-  const { phase, liveStatus } = host;
+  const { phase, liveStatus, client, conn, info } = host;
 
   return (
     <main data-testid="content-pane" className="flex min-w-0 flex-col bg-base">
@@ -31,42 +33,30 @@ export function ContentPane({ host, selected }: ContentPaneProps) {
       </header>
 
       <div className="min-h-0 flex-1 p-3">
-        <section className="flex h-full min-h-0 flex-col items-center justify-center overflow-hidden rounded-lg border border-line bg-inset">
-          {phase === "connecting" ? (
-            <div className="flex flex-col items-center gap-2 text-fg-muted">
-              <Spinner size="lg" label="Connecting to host" />
-              <span className="text-xs">Connecting to host…</span>
-            </div>
-          ) : phase === "connected" && selected ? (
-            <EmptyState
-              icon={<TerminalSquare />}
-              title="Worktree ready"
-              description="The live terminal and diff viewer for this worktree attach to this pane in the next Phase-3 wave."
-              hint={
-                <span className="flex items-center gap-3 font-mono">
-                  <span className="inline-flex items-center gap-1">
-                    <TerminalSquare className="size-3" aria-hidden /> terminal
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <GitCompare className="size-3" aria-hidden /> diff
-                  </span>
-                </span>
-              }
-            />
-          ) : phase === "connected" ? (
-            <EmptyState
-              icon={<LayoutGrid />}
-              title="Select a worktree"
-              description="Pick a worktree from the rail to inspect its terminal and diff."
-            />
-          ) : (
-            <EmptyState
-              icon={<TerminalSquare />}
-              title="Not connected"
-              description="Connect to a running Grove host to load its worktrees."
-            />
-          )}
-        </section>
+        {phase === "connected" && selected && client && conn ? (
+          <ContentTabs client={client} conn={conn} workspace={selected} os={info?.os ?? "linux"} />
+        ) : (
+          <section className="flex h-full min-h-0 flex-col items-center justify-center overflow-hidden rounded-lg border border-line bg-inset">
+            {phase === "connecting" ? (
+              <div className="flex flex-col items-center gap-2 text-fg-muted">
+                <Spinner size="lg" label="Connecting to host" />
+                <span className="text-xs">Connecting to host…</span>
+              </div>
+            ) : phase === "connected" ? (
+              <EmptyState
+                icon={<LayoutGrid />}
+                title="Select a worktree"
+                description="Pick a worktree from the rail to inspect its terminal and diff."
+              />
+            ) : (
+              <EmptyState
+                icon={<TerminalSquare />}
+                title="Not connected"
+                description="Connect to a running Grove host to load its worktrees."
+              />
+            )}
+          </section>
+        )}
       </div>
     </main>
   );

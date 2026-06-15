@@ -87,6 +87,38 @@ export function syncUrl(conn: HostConnection): string {
   return `${base}/sync?token=${encodeURIComponent(conn.token)}`;
 }
 
+/** Query parameters for opening a terminal-IO WebSocket (P05). */
+export interface TerminalParams {
+  readonly workspaceId: string;
+  /** Shell kind (`pwsh` | `powershell` | `cmd` | `bash` …); host default when omitted. */
+  readonly shell?: string;
+  readonly cols: number;
+  readonly rows: number;
+  /** When set, the host runs this command non-interactively and streams it (presets). */
+  readonly cmd?: string;
+}
+
+/**
+ * The ephemeral terminal-IO WS URL (separate topic from `/sync`). Like the sync
+ * channel, the bearer token rides the `token` query param because a browser
+ * WebSocket cannot set an `Authorization` header; the host gates the upgrade on it.
+ */
+export function terminalUrl(conn: HostConnection, params: TerminalParams): string {
+  const base = trimTrailingSlash(conn.endpoint).replace(/^http/, "ws");
+  const q = new URLSearchParams();
+  q.set("token", conn.token);
+  q.set("workspaceId", params.workspaceId);
+  if (params.shell) {
+    q.set("shell", params.shell);
+  }
+  q.set("cols", String(params.cols));
+  q.set("rows", String(params.rows));
+  if (params.cmd) {
+    q.set("cmd", params.cmd);
+  }
+  return `${base}/terminal?${q.toString()}`;
+}
+
 /**
  * A {@link SyncTransport} over the browser/Electron-renderer global `WebSocket`.
  * The host ships a Node `ws`-backed transport; the {@link SyncClient} core is

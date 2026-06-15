@@ -2,6 +2,7 @@ import { ThemeProvider, ToastProvider } from "@swarm/ui/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
+import "@xterm/xterm/css/xterm.css";
 import "./index.css";
 
 const container = document.getElementById("root");

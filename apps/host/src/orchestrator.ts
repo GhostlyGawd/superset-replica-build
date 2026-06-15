@@ -149,6 +149,11 @@ export class Orchestrator {
     this.worktreesRoot = deps.worktreesRoot ?? join(homedir(), ".grove", "worktrees");
   }
 
+  /** The PTY supervisor this orchestrator drives — shared with the terminal-IO hub. */
+  get ptySupervisor(): PtySupervisor {
+    return this.supervisor;
+  }
+
   private engineFor(repoRoot: string): WorktreeEngine {
     let engine = this.engines.get(repoRoot);
     if (engine === undefined) {

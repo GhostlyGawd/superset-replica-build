@@ -1,10 +1,11 @@
 import { join } from "node:path";
 import { BUILTIN_ADAPTERS } from "@swarm/agent-adapters";
 import type { Store } from "@swarm/db/store";
+import { WorktreeEngine } from "@swarm/git-worktree";
 import type { HostId } from "@swarm/shared";
 import { asId } from "@swarm/shared";
 import type { EventLog } from "@swarm/sync";
-import { initTRPC } from "@trpc/server";
+import { TRPCError, initTRPC } from "@trpc/server";
 import { z } from "zod";
 import type { Orchestrator } from "./orchestrator.ts";
 
@@ -46,6 +47,23 @@ export interface HostContext {
 const t = initTRPC.context<HostContext>().create();
 
 const workspaceIdInput = z.object({ workspaceId: z.string() });
+
+/** Resolve a workspace's on-disk worktree path, or 404 — the diff router's anchor. */
+async function worktreePathFor(services: HostServices, workspaceId: string): Promise<string> {
+  const workspace = await services.store.getWorkspace(asId<"WorkspaceId">(workspaceId));
+  if (!workspace) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `unknown workspace: ${workspaceId}` });
+  }
+  return workspace.worktreePath;
+}
+
+/** Surface a git-worktree `Result` error as a tRPC error instead of a silent value. */
+function unwrap<T>(result: { ok: true; value: T } | { ok: false; error: { message: string } }): T {
+  if (!result.ok) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error.message });
+  }
+  return result.value;
+}
 
 /**
  * A focused, real slice of the architecture §3.1 surface — enough to drive the
@@ -173,7 +191,57 @@ export function createAppRouter() {
           ctx.services.store.listSessions(asId<"WorkspaceId">(input.workspaceId)),
         ),
     }),
+
+    /**
+     * Real git diff over a workspace's worktree (P06). `status`/`getFileDiff` read
+     * the live working tree vs HEAD; `writeFile` saves the inline editor's content
+     * straight back to disk; `discard` restores a file. High-frequency terminal IO
+     * does NOT live here — it rides the ephemeral `/terminal` WS topic (spec §4).
+     */
+    diffs: t.router({
+      status: t.procedure.input(workspaceIdInput).query(async ({ ctx, input }) => {
+        const path = await worktreePathFor(ctx.services, input.workspaceId);
+        return unwrap(await new WorktreeEngine(path).changes(path));
+      }),
+      getFileDiff: t.procedure
+        .input(z.object({ workspaceId: z.string(), path: z.string() }))
+        .query(async ({ ctx, input }) => {
+          const path = await worktreePathFor(ctx.services, input.workspaceId);
+          return unwrap(await new WorktreeEngine(path).fileDiff(path, input.path));
+        }),
+      writeFile: t.procedure
+        .input(z.object({ workspaceId: z.string(), path: z.string(), content: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+          const path = await worktreePathFor(ctx.services, input.workspaceId);
+          unwrap(await new WorktreeEngine(path).writeFile(path, input.path, input.content));
+          return { ok: true as const };
+        }),
+      discard: t.procedure
+        .input(z.object({ workspaceId: z.string(), path: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+          const path = await worktreePathFor(ctx.services, input.workspaceId);
+          unwrap(await new WorktreeEngine(path).discardFile(path, input.path));
+          return { ok: true as const };
+        }),
+    }),
+
+    /**
+     * Terminal discovery (P05). The actual byte stream is out-of-band on the
+     * `/terminal` WebSocket topic (see `terminal-server.ts`); this router only
+     * advertises the worktree's cwd + the default shell a new session should use.
+     */
+    terminal: t.router({
+      shellFor: t.procedure.input(workspaceIdInput).query(async ({ ctx, input }) => {
+        const cwd = await worktreePathFor(ctx.services, input.workspaceId);
+        return { cwd, defaultShell: defaultShellFor(ctx.services.os) };
+      }),
+    }),
   });
+}
+
+/** The reliably-present default interactive shell per OS for a fresh terminal. */
+export function defaultShellFor(os: OsName): string {
+  return os === "windows" ? "powershell" : "bash";
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;

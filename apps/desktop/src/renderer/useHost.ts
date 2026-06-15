@@ -2,6 +2,8 @@ import type { Workspace, WorkspaceStatus } from "@swarm/db";
 import { SyncClient, type SyncClientState } from "@swarm/sync";
 import { useCallback, useEffect, useState } from "react";
 import {
+  type HostConnection,
+  type HostTrpcClient,
   browserWebSocketTransport,
   createHostClient,
   resolveHostConnection,
@@ -24,6 +26,10 @@ export interface HostState {
   readonly liveStatus: ReadonlyMap<string, WorkspaceStatus>;
   readonly syncState: SyncClientState;
   readonly info: HostInfoView | null;
+  /** The live tRPC client (diffs/terminal/workspaces); null until connected. */
+  readonly client: HostTrpcClient | null;
+  /** The resolved `{endpoint, token}` — what the terminal-IO WS needs; null until connected. */
+  readonly conn: HostConnection | null;
   readonly error: string | null;
   readonly retry: () => void;
 }
@@ -49,6 +55,8 @@ export function useHost(): HostState {
   const [liveStatus, setLiveStatus] = useState<ReadonlyMap<string, WorkspaceStatus>>(new Map());
   const [syncState, setSyncState] = useState<SyncClientState>("idle");
   const [info, setInfo] = useState<HostInfoView | null>(null);
+  const [client, setClient] = useState<HostTrpcClient | null>(null);
+  const [conn, setConn] = useState<HostConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
 
@@ -63,18 +71,20 @@ export function useHost(): HostState {
     setError(null);
     setSyncState("idle");
     setLiveStatus(new Map());
+    setClient(null);
+    setConn(null);
 
     void (async () => {
-      const conn = await resolveHostConnection();
+      const resolved = await resolveHostConnection();
       if (cancelled) {
         return;
       }
-      if (!conn) {
+      if (!resolved) {
         setPhase("no-host");
         return;
       }
       try {
-        const client = createHostClient(conn);
+        const client = createHostClient(resolved);
         const status = await client.host.status.query();
         if (cancelled) {
           return;
@@ -84,16 +94,21 @@ export function useHost(): HostState {
           return;
         }
         setInfo({
-          endpoint: conn.endpoint,
+          endpoint: resolved.endpoint,
           hostId: status.hostId,
           os: status.os,
           version: status.version,
         });
         setWorkspaces(list);
+        // The tRPC client is a CALLABLE proxy, so it must be stored via the lazy
+        // updater form — `setClient(client)` would make React invoke it as a state
+        // updater instead of storing it.
+        setClient(() => client);
+        setConn(resolved);
         setPhase("connected");
 
         sync = new SyncClient({
-          transport: browserWebSocketTransport(syncUrl(conn)),
+          transport: browserWebSocketTransport(syncUrl(resolved)),
           hostId: status.hostId,
           onEvent: ({ event }) => {
             if (event.type === "workspace.status_changed") {
@@ -126,5 +141,5 @@ export function useHost(): HostState {
     };
   }, [nonce]);
 
-  return { phase, workspaces, liveStatus, syncState, info, error, retry };
+  return { phase, workspaces, liveStatus, syncState, info, client, conn, error, retry };
 }

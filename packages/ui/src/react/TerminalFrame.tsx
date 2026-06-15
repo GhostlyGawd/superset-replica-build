@@ -1,4 +1,4 @@
-import { Eraser, Plus, Search, SplitSquareHorizontal } from "lucide-react";
+import { Eraser, Plus, Search, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../cn";
 import { IconButton } from "./IconButton";
@@ -13,12 +13,20 @@ export interface TerminalFrameProps {
   readonly tabs?: readonly TerminalTab[];
   readonly activeTab?: string;
   readonly onTabChange?: (id: string) => void;
+  /** Close a tab (renders a per-tab × affordance when provided). */
+  readonly onTabClose?: (id: string) => void;
   /** Shell descriptor shown in the footer, e.g. "pwsh". */
   readonly shell?: string;
   readonly cwd?: string;
   readonly cols?: number;
   readonly rows?: number;
   readonly connected?: boolean;
+  /** Toolbar handlers — when omitted the buttons stay decorative (showcase). */
+  readonly onNewTab?: () => void;
+  readonly onClear?: () => void;
+  readonly onFind?: () => void;
+  readonly onSplitRight?: () => void;
+  readonly onSplitDown?: () => void;
   /** Extra toolbar actions appended after the defaults. */
   readonly actions?: ReactNode;
   /** The terminal body (xterm mount, or sample output in the showcase). */
@@ -35,11 +43,17 @@ export function TerminalFrame({
   tabs = [],
   activeTab,
   onTabChange,
+  onTabClose,
   shell = "pwsh",
   cwd = "~",
   cols = 120,
   rows = 32,
   connected = true,
+  onNewTab,
+  onClear,
+  onFind,
+  onSplitRight,
+  onSplitDown,
   actions,
   children,
   className,
@@ -56,43 +70,64 @@ export function TerminalFrame({
           {tabs.map((tab) => {
             const selected = tab.id === activeTab;
             return (
-              <button
+              <span
                 key={tab.id}
-                type="button"
-                onClick={() => onTabChange?.(tab.id)}
-                aria-current={selected ? "true" : undefined}
                 className={cn(
-                  "inline-flex h-7 shrink-0 items-center rounded-md px-2.5 font-mono text-xs transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
+                  "group inline-flex h-7 shrink-0 items-center rounded-md font-mono text-xs transition-colors duration-fast",
                   selected ? "bg-inset text-fg" : "text-fg-muted hover:bg-raised hover:text-fg",
                 )}
               >
-                {tab.label}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onTabChange?.(tab.id)}
+                  aria-current={selected ? "true" : undefined}
+                  className="inline-flex h-7 items-center rounded-md pl-2.5 pr-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                >
+                  {tab.label}
+                </button>
+                {onTabClose ? (
+                  <button
+                    type="button"
+                    aria-label={`Close ${tab.label}`}
+                    onClick={() => onTabClose(tab.id)}
+                    className="mr-1 inline-flex size-4 items-center justify-center rounded text-fg-subtle opacity-0 transition-opacity hover:bg-line hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [&_svg]:size-3"
+                  >
+                    <X />
+                  </button>
+                ) : null}
+              </span>
             );
           })}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {actions}
           <Tooltip label="Find (Ctrl+Shift+F)">
-            <IconButton aria-label="Find in terminal" size="sm">
+            <IconButton aria-label="Find in terminal" size="sm" onClick={onFind}>
               <Search />
             </IconButton>
           </Tooltip>
           <Tooltip label="Clear (Ctrl+Shift+K)">
-            <IconButton aria-label="Clear terminal" size="sm">
+            <IconButton aria-label="Clear terminal" size="sm" onClick={onClear}>
               <Eraser />
             </IconButton>
           </Tooltip>
           <Tooltip label="Split right (Ctrl+Shift+D)">
-            <IconButton aria-label="Split terminal right" size="sm">
+            <IconButton aria-label="Split terminal right" size="sm" onClick={onSplitRight}>
               <SplitSquareHorizontal />
             </IconButton>
           </Tooltip>
+          {onSplitDown ? (
+            <Tooltip label="Split down (Ctrl+Shift+Alt+D)">
+              <IconButton aria-label="Split terminal down" size="sm" onClick={onSplitDown}>
+                <SplitSquareVertical />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           <Tooltip label="New tab (Ctrl+Shift+T)">
-            <IconButton aria-label="New terminal tab" size="sm">
+            <IconButton aria-label="New terminal tab" size="sm" onClick={onNewTab}>
               <Plus />
             </IconButton>
           </Tooltip>
-          {actions}
         </div>
       </div>
 

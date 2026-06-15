@@ -16,11 +16,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { Orchestrator } from "./orchestrator.ts";
 import { PgliteEventLogStore } from "./pglite-event-log-store.ts";
+import { type TerminalServer, createTerminalServer } from "./terminal-server.ts";
 import { type HostServices, createAppRouter, osName } from "./trpc.ts";
 import { HOST_VERSION } from "./version.ts";
 
 const DEFAULT_BIND_HOST = "127.0.0.1";
 const SYNC_PATH = "/sync";
+const TERMINAL_PATH = "/terminal";
 
 /** On-disk handshake a local client reads to find + authenticate the host. */
 export interface HostManifest {
@@ -179,6 +181,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     authorize: (req) => authorizeRequest(req, token),
   });
 
+  // Mount the ephemeral terminal-IO hub on the SAME server + token (architecture
+  // §4): high-frequency PTY bytes ride this topic, out-of-band from the durable
+  // sync log above. Registered after the sync hub so both upgrade listeners
+  // coexist (each ignores the other's path). Shares the orchestrator's supervisor
+  // so host shutdown's killAll() is a backstop for any terminal PTY.
+  const terminal: TerminalServer = await createTerminalServer({
+    server,
+    supervisor: options.supervisor ?? orchestrator.ptySupervisor,
+    path: TERMINAL_PATH,
+    authorize: (req) => authorizeRequest(req, token),
+    cwdFor: async (workspaceId) => {
+      const ws = await store.getWorkspace(asId<"WorkspaceId">(workspaceId));
+      return ws?.worktreePath;
+    },
+  });
+
   const resolvedEndpoint = endpoint();
   const manifestDir = options.manifestDir ?? join(homedir(), ".grove", "host");
   mkdirSync(manifestDir, { recursive: true });
@@ -203,12 +221,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     close: async () => {
       // Deterministic teardown — the order matters on Windows, where a lingering
       // socket or PTY pipe otherwise keeps the process alive past test timeout:
-      //   1) release the WS sync hub (terminates live sockets, detaches the handler);
+      //   1) release the WS sync + terminal hubs (terminates live sockets, detaches
+      //      the handlers, and tree-kills terminal PTYs);
       //   2) tree-kill every spawned PTY/agent process so no node-pty pipe survives;
       //   3) force-close lingering keep-alive HTTP/WS sockets (undici's fetch pool
       //      keeps these OPEN — plain `server.close()` then waits forever for them),
       //      THEN stop accepting and close the listener.
       await sync.close();
+      await terminal.close();
       await orchestrator.shutdown();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

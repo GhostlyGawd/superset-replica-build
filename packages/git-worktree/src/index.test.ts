@@ -367,3 +367,68 @@ describe("@swarm/git-worktree WorktreeEngine", () => {
     expect(!imported.ok && imported.error.code).toBe("invalid_path");
   });
 });
+
+describe("@swarm/git-worktree diff viewer (P06)", () => {
+  test("changes() reports modified + untracked files with line counts", async () => {
+    const { engine, repoPath } = fixture;
+    // README.md (committed "hello\n") gets an uncommitted edit; add a new file.
+    writeFileSync(join(repoPath, "README.md"), "hello\nworld\n");
+    writeFileSync(join(repoPath, "fresh.txt"), "a\nb\nc\n");
+
+    const result = await engine.changes(repoPath);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const byPath = new Map(result.value.map((c) => [c.path, c]));
+    const readme = byPath.get("README.md");
+    expect(readme?.changeType).toBe("modified");
+    expect(readme?.additions).toBe(1); // +"world"
+    const fresh = byPath.get("fresh.txt");
+    expect(fresh?.changeType).toBe("added");
+    expect(fresh?.additions).toBe(3);
+  });
+
+  test("fileDiff() returns real hunks plus old + new text", async () => {
+    const { engine, repoPath } = fixture;
+    writeFileSync(join(repoPath, "README.md"), "hello\nworld\n");
+
+    const result = await engine.fileDiff(repoPath, "README.md");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.oldText).toBe("hello\n");
+    expect(result.value.newText).toBe("hello\nworld\n");
+    expect(result.value.hunks.length).toBeGreaterThan(0);
+    const addedLines = result.value.hunks.flatMap((h) => h.lines).filter((l) => l.startsWith("+"));
+    expect(addedLines.some((l) => l.includes("world"))).toBe(true);
+  });
+
+  test("fileDiff() synthesizes a whole-file add hunk for an untracked file", async () => {
+    const { engine, repoPath } = fixture;
+    writeFileSync(join(repoPath, "fresh.txt"), "one\ntwo\n");
+
+    const result = await engine.fileDiff(repoPath, "fresh.txt");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.oldText).toBe("");
+    expect(result.value.hunks).toHaveLength(1);
+    expect(result.value.hunks[0]?.lines).toEqual(["+one", "+two"]);
+  });
+
+  test("writeFile() saves real content back, and rejects path traversal", async () => {
+    const { engine, repoPath } = fixture;
+
+    const saved = await engine.writeFile(repoPath, "README.md", "rewritten\n");
+    expect(saved.ok).toBe(true);
+    expect(readFileSync(join(repoPath, "README.md"), "utf8")).toBe("rewritten\n");
+
+    const escaped = await engine.writeFile(repoPath, "../escape.txt", "nope");
+    expect(escaped.ok).toBe(false);
+    expect(!escaped.ok && escaped.error.code).toBe("invalid_path");
+    expect(existsSync(join(repoPath, "..", "escape.txt"))).toBe(false);
+  });
+});

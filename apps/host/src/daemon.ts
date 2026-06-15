@@ -27,8 +27,16 @@ export { PgliteEventLogStore } from "./pglite-event-log-store.ts";
 export {
   createAppRouter,
   osName,
+  defaultShellFor,
   type AppRouter,
   type HostContext,
   type HostServices,
   type OsName,
 } from "./trpc.ts";
+export {
+  createTerminalServer,
+  type TerminalServer,
+  type TerminalServerOptions,
+  type TerminalClientFrame,
+  type TerminalServerFrame,
+} from "./terminal-server.ts";
