@@ -22,8 +22,11 @@ function delay(ms: number): Promise<void> {
 // Generous bounds so a loaded/slow CI runner has ample time for the grandchild to
 // launch, echo its PID, and (after kill) actually leave the OS process table —
 // the wave-1 -> wave-2 flake was reading the tree exactly once at a fixed 3s, when
-// the grandchild sometimes had not appeared yet (childPid=null -> FAIL).
-const WAIT_DEADLINE_MS = 12_000;
+// the grandchild sometimes had not appeared yet (childPid=null -> FAIL). Under a
+// cold full-tree `turbo --force` run, several ConPTY-spawning suites execute at
+// once and `tasklist` polling itself contends, so this stays well above the
+// happy-path latency (ADR-0011 Windows-under-load resilience).
+const WAIT_DEADLINE_MS = 20_000;
 const POLL_INTERVAL_MS = 200;
 
 /** Poll `predicate` every POLL_INTERVAL_MS until it is true or the deadline elapses. */

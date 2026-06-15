@@ -86,6 +86,23 @@ export function createAppRouter() {
         .input(
           z.object({
             workspaceId: z.string(),
+            /**
+             * Which adapter to dispatch — a real built-in preset, or the keyless
+             * `mock` (which still only runs when `SWARM_ENABLE_MOCK_ADAPTER` is set
+             * on the host; there is no API field to enable it, so it is never on a
+             * user happy path). Required: no default selection.
+             */
+            adapterId: z.enum([
+              "claude-code",
+              "codex-cli",
+              "cursor-agent",
+              "gemini-cli",
+              "generic",
+              "mock",
+            ]),
+            /** Command for the `generic` adapter (or an override for a named CLI). */
+            command: z.string().optional(),
+            args: z.array(z.string()).optional(),
             workMs: z.number().int().positive().optional(),
             fileName: z.string().optional(),
           }),
@@ -93,7 +110,13 @@ export function createAppRouter() {
         .mutation(async ({ ctx, input }) => {
           const run = await ctx.services.orchestrator.startAgentInWorkspace(
             asId<"WorkspaceId">(input.workspaceId),
-            { workMs: input.workMs, fileName: input.fileName },
+            {
+              adapterId: input.adapterId,
+              command: input.command,
+              args: input.args,
+              workMs: input.workMs,
+              fileName: input.fileName,
+            },
           );
           return run.session;
         }),

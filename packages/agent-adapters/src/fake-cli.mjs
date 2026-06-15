@@ -1,9 +1,15 @@
 /**
- * fake-cli — a deterministic stand-in for a real coding agent, used ONLY by the
- * mock adapter (which is gated behind an explicit flag, never a user happy path).
- * It runs UNDER NODE inside a real PTY (Node 24 strips the type annotations), so
- * the integration/e2e suite can exercise the full spawn -> stream -> file-change
- * -> done path with no real CLI and no API key.
+ * fake-cli — a deterministic stand-in for a real coding agent. Driven by the mock
+ * adapter (gated behind an explicit flag, never a user happy path) and also usable
+ * as a plain `generic` adapter CLI in tests. It runs UNDER NODE inside a real PTY.
+ *
+ * This is plain `.mjs` on purpose (ADR-0011): Node's strip-types execution of a
+ * `.ts` script inside a PTY is unreliable on the GitHub `windows-latest` runner, so
+ * the node-executed script carries no TypeScript and no relative `.ts` imports. The
+ * importable library source stays `.ts`; only this executed script is `.mjs`.
+ *
+ * The constants below are duplicated verbatim from `mock-protocol.ts` (the source
+ * of truth); `fake-cli.protocol.test.ts` asserts they stay in lock-step.
  *
  * Behaviour: print a banner token, simulate a short "working" phase with periodic
  * output (so status stays `running`, never goes idle), write a real file into the
@@ -14,19 +20,14 @@ import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { argv, cwd, exit, stdout } from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
-import {
-  MOCK_DEFAULT_FILENAME,
-  MOCK_DONE_MARKER,
-  MOCK_FILE_HEADING,
-  MOCK_OUTPUT_TOKEN,
-} from "./mock-protocol.ts";
 
-interface Parsed {
-  readonly file: string;
-  readonly workMs: number;
-}
+// Mirror of mock-protocol.ts (kept in lock-step by fake-cli.protocol.test.ts).
+const MOCK_OUTPUT_TOKEN = "SWARM-MOCK-AGENT";
+const MOCK_DONE_MARKER = "__SWARM_MOCK_DONE__";
+const MOCK_DEFAULT_FILENAME = "AGENT_OUTPUT.md";
+const MOCK_FILE_HEADING = "# Swarm mock agent run";
 
-function parseArgs(args: readonly string[]): Parsed {
+function parseArgs(args) {
   let file = MOCK_DEFAULT_FILENAME;
   let workMs = 600;
   for (let i = 0; i < args.length; i += 1) {
@@ -46,11 +47,11 @@ function parseArgs(args: readonly string[]): Parsed {
   return { file, workMs };
 }
 
-function line(text: string): void {
+function line(text) {
   stdout.write(`${text}\n`);
 }
 
-async function main(): Promise<number> {
+async function main() {
   const { file, workMs } = parseArgs(argv.slice(2));
   line(`${MOCK_OUTPUT_TOKEN} v1 starting in ${cwd()}`);
 
@@ -70,7 +71,7 @@ async function main(): Promise<number> {
 
 main().then(
   (code) => exit(code),
-  (error: unknown) => {
+  (error) => {
     const reason = error instanceof Error ? error.message : String(error);
     line(`${MOCK_OUTPUT_TOKEN} failed: ${reason}`);
     exit(1);

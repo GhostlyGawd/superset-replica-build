@@ -47,7 +47,9 @@ async function main(): Promise<number> {
     },
   });
 
-  const deadline = Date.now() + 15_000;
+  // Generous deadline: under a cold full-tree `turbo` run many PTY-spawning suites
+  // execute concurrently, and ConPTY spawn/stream is slow under that load (ADR-0011).
+  const deadline = Date.now() + 45_000;
   while (handle.status() !== "done" && handle.status() !== "error" && Date.now() < deadline) {
     await delay(100);
   }

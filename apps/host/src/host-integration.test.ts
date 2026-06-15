@@ -11,9 +11,11 @@ import { fileURLToPath } from "node:url";
  * ERR_SOCKET_CLOSED, ADR-0007a), so the real host + parallel agents run in a NODE
  * child (`host-worker.ts`); Bun (the test runtime) orchestrates and adds its own
  * independent, on-disk checks. We start the REAL host (Hono + tRPC + WS sync +
- * PGlite) and spawn 4 mock agents — 3 in parallel programmatically + 1 via the
- * tRPC command path — each isolated in its own git worktree, and assert:
- *   P02 isolation · P01 parallelism · P04 live status · P10 persistence · P11 auth.
+ * PGlite) and spawn 4 agents — 3 mock agents in parallel programmatically (keyless
+ * mock under an EXPLICIT flag) + 1 REAL `generic` adapter via the tRPC command path
+ * (P03) — each isolated in its own git worktree, and assert:
+ *   P02 isolation · P01 parallelism · P03 real dispatch · P04 live status ·
+ *   P10 persistence · P11 auth.
  */
 const WORKER = fileURLToPath(new URL("./host-worker.ts", import.meta.url));
 
@@ -61,6 +63,7 @@ interface HostReport {
   delta: {
     workspaceId: string;
     sessionId: string;
+    adapterId: string;
     status: string | null;
     worktreePath: string;
     eventCount: number;
@@ -109,7 +112,7 @@ beforeAll(() => {
   repoPath = join(root, "repo");
   makeFixtureRepo(repoPath);
 
-  const result = spawnSync("node", [WORKER, root], { encoding: "utf8", timeout: 120_000 });
+  const result = spawnSync("node", [WORKER, root], { encoding: "utf8", timeout: 180_000 });
   out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   exitStatus = result.status;
 
@@ -118,7 +121,7 @@ beforeAll(() => {
   if (begin >= 0 && end > begin) {
     report = JSON.parse(out.slice(begin + "HOST_REPORT_BEGIN".length, end)) as HostReport;
   }
-}, 120_000);
+}, 180_000);
 
 afterAll(() => {
   if (root) {
@@ -227,7 +230,10 @@ describe("@swarm/host integration — parallel isolated agents (real host, via N
     }
   });
 
-  test("tRPC COMMAND PATH: a 4th agent created + run + persisted via the API", () => {
+  test("tRPC COMMAND PATH (P03 real dispatch): a 4th agent via the API ran a REAL adapter", () => {
+    // The API dispatched a REAL adapter, not the mock — the core P03 fix.
+    expect(report.delta.adapterId).toBe("generic");
+    expect(report.delta.adapterId).not.toBe("mock");
     expect(report.delta.status).toBe("done");
     expect(report.delta.eventCount).toBe(4);
     // Its file landed in its own worktree, and nowhere else.

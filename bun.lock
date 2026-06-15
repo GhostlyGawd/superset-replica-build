@@ -41,6 +41,7 @@
         "@hono/trpc-server": "^0.4.2",
         "@swarm/agent-adapters": "workspace:*",
         "@swarm/api": "workspace:*",
+        "@swarm/config": "workspace:*",
         "@swarm/core-engine": "workspace:*",
         "@swarm/db": "workspace:*",
         "@swarm/git-worktree": "workspace:*",

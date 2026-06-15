@@ -43,9 +43,11 @@ describe("named presets", () => {
 
 describe("detectAdapter (graceful degradation, never fakes success)", () => {
   test("a present CLI resolves to available with a path", async () => {
-    // `node` is guaranteed present in this toolchain; reuse the claude descriptor shape.
+    // `git` is guaranteed present on every CI runner (actions/checkout needs it)
+    // and locally — unlike an assumed toolchain binary it never flakes on the
+    // Windows runner. Reuse the claude descriptor shape with command `git`.
     const preset: AgentPreset = {
-      descriptor: { ...getPreset("claude-code").descriptor, command: "node" },
+      descriptor: { ...getPreset("claude-code").descriptor, command: "git" },
       detection: getPreset("claude-code").detection,
       env: {},
     };

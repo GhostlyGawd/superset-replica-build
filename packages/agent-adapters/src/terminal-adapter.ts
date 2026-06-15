@@ -68,10 +68,42 @@ function quoteCmd(value: string): string {
 }
 
 /**
+ * Wrap an already-composed shell command `body` with optional env assignments and
+ * a trailing exit-code echo so `scanOutput` can detect done/error from the PTY
+ * stream (the supervisor spawns a shell, not the agent process directly, so there
+ * is no process-exit event to listen on). Env quoting is per-shell so values with
+ * spaces (`C:\Users\John Doe`) survive verbatim on Windows.
+ *
+ * `body` is emitted verbatim — pass a quoted command call (see {@link buildLaunchLine})
+ * or a raw user command line (workspace `setup`/`teardown`, P07).
+ */
+export function buildExitLine(
+  shell: ShellKind,
+  body: string,
+  env: Readonly<Record<string, string>> = {},
+): string {
+  const entries = Object.entries(env);
+  switch (shell) {
+    case "pwsh":
+    case "powershell": {
+      const envPart = entries.map(([k, v]) => `$env:${k}=${quotePwsh(v)}; `).join("");
+      return `${envPart}${body}; Write-Host "${EXIT_SENTINEL}:$LASTEXITCODE"`;
+    }
+    case "cmd": {
+      const envPart = entries.map(([k, v]) => `set ${quoteCmd(`${k}=${v}`)} & `).join("");
+      return `${envPart}${body} & echo ${EXIT_SENTINEL}:%ERRORLEVEL%`;
+    }
+    default: {
+      const envPart = entries.map(([k, v]) => `${k}=${quotePosix(v)} `).join("");
+      return `${envPart}${body}; echo "${EXIT_SENTINEL}:$?"`;
+    }
+  }
+}
+
+/**
  * Compose the line written into the shell PTY: optional env assignments, the
- * quoted command + args, then an exit-code echo so `scanOutput` can detect
- * done/error. Quoting is per-shell so paths with spaces (`C:\Users\John Doe`)
- * survive verbatim on Windows.
+ * quoted command + args, then an exit-code echo. Quoting is per-shell so paths
+ * with spaces (`C:\Users\John Doe`) survive verbatim on Windows.
  */
 export function buildLaunchLine(
   shell: ShellKind,
@@ -79,25 +111,15 @@ export function buildLaunchLine(
   args: readonly string[],
   env: Readonly<Record<string, string>>,
 ): string {
-  const entries = Object.entries(env);
   const tokens = [command, ...args];
   switch (shell) {
     case "pwsh":
-    case "powershell": {
-      const envPart = entries.map(([k, v]) => `$env:${k}=${quotePwsh(v)}; `).join("");
-      const call = `& ${tokens.map(quotePwsh).join(" ")}`;
-      return `${envPart}${call}; Write-Host "${EXIT_SENTINEL}:$LASTEXITCODE"`;
-    }
-    case "cmd": {
-      const envPart = entries.map(([k, v]) => `set ${quoteCmd(`${k}=${v}`)} & `).join("");
-      const call = tokens.map(quoteCmd).join(" ");
-      return `${envPart}${call} & echo ${EXIT_SENTINEL}:%ERRORLEVEL%`;
-    }
-    default: {
-      const envPart = entries.map(([k, v]) => `${k}=${quotePosix(v)} `).join("");
-      const call = tokens.map(quotePosix).join(" ");
-      return `${envPart}${call}; echo "${EXIT_SENTINEL}:$?"`;
-    }
+    case "powershell":
+      return buildExitLine(shell, `& ${tokens.map(quotePwsh).join(" ")}`, env);
+    case "cmd":
+      return buildExitLine(shell, tokens.map(quoteCmd).join(" "), env);
+    default:
+      return buildExitLine(shell, tokens.map(quotePosix).join(" "), env);
   }
 }
 

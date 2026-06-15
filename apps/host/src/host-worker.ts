@@ -12,7 +12,8 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { argv, env, exit } from "node:process";
+import { argv, exit } from "node:process";
+import { fakeCliPath } from "@swarm/agent-adapters";
 import type { DomainEvent } from "@swarm/core-engine";
 import { openStore } from "@swarm/db/store";
 import { PtySupervisor } from "@swarm/pty-supervisor";
@@ -23,9 +24,10 @@ import { Orchestrator } from "./orchestrator.ts";
 import { PgliteEventLogStore } from "./pglite-event-log-store.ts";
 import { startHost } from "./server.ts";
 
-// The mock adapter is the only keyless agent; enable it process-wide (this is a
-// test/dev process, never a user path) so the tRPC command path can run it too.
-env.SWARM_ENABLE_MOCK_ADAPTER = "1";
+// The 3 parallel agents use the keyless mock under an EXPLICIT per-call flag
+// (`enableMock:true`, a legitimate test use); the tRPC command path below runs a
+// REAL `generic` adapter. The process-wide `SWARM_ENABLE_MOCK_ADAPTER` env gate is
+// deliberately NOT set, proving the mock is unreachable on the API/user path.
 
 interface LiveRecord {
   readonly seq: number;
@@ -213,7 +215,12 @@ async function main(): Promise<number> {
   const t0 = Date.now();
   const started = await Promise.all(
     prepared.map(({ spec, prepared: p }) =>
-      orchestrator.startAgent(p, { workMs, fileName: spec.fileName, enableMock: true }),
+      orchestrator.startAgent(p, {
+        adapterId: "mock",
+        enableMock: true,
+        workMs,
+        fileName: spec.fileName,
+      }),
     ),
   );
   await Promise.all(started.map((r) => r.done));
@@ -222,7 +229,10 @@ async function main(): Promise<number> {
     await run.stop();
   }
 
-  // ---- tRPC command path end-to-end (a 4th agent via the API) ----------------
+  // ---- tRPC command path end-to-end: a 4th agent via the API, dispatched to a
+  // ---- REAL adapter (P03). The `generic` adapter runs a trivially-present CLI
+  // ---- (`node <fake-cli.mjs>`) over the universal terminal adapter — NOT the
+  // ---- mock, and with no mock gate set — proving the real dispatch path.
   const deltaWs = (await trpcMutation(host.endpoint, host.token, "workspaces.create", {
     projectId: project.id,
     name: "agent-delta",
@@ -231,12 +241,13 @@ async function main(): Promise<number> {
   })) as { id: string; worktreePath: string };
   const deltaSession = (await trpcMutation(host.endpoint, host.token, "agents.start", {
     workspaceId: deltaWs.id,
-    workMs: 400,
-    fileName: "delta.md",
-  })) as { id: string };
+    adapterId: "generic",
+    command: "node",
+    args: [fakeCliPath(), "--file", "delta.md", "--work-ms", "400"],
+  })) as { id: string; adapterId: string };
   await waitUntil(
     async () => (await store.getWorkspace(asId<"WorkspaceId">(deltaWs.id)))?.status === "done",
-    15_000,
+    30_000,
   );
   await trpcMutation(host.endpoint, host.token, "agents.stop", { sessionId: deltaSession.id });
   const deltaWorkspace = await store.getWorkspace(asId<"WorkspaceId">(deltaWs.id));
@@ -343,6 +354,7 @@ async function main(): Promise<number> {
     delta: {
       workspaceId: deltaWs.id,
       sessionId: deltaSession.id,
+      adapterId: deltaSession.adapterId,
       status: deltaWorkspace?.status ?? null,
       worktreePath: deltaWs.worktreePath,
       eventCount: byWorkspace[deltaWs.id]?.count ?? 0,

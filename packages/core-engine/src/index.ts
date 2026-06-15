@@ -22,7 +22,25 @@ export type DomainEvent =
       readonly sessionId: SessionId;
       readonly workspaceId: WorkspaceId;
     }
-  | { readonly type: "session.exited"; readonly sessionId: SessionId; readonly exitCode: number };
+  | { readonly type: "session.exited"; readonly sessionId: SessionId; readonly exitCode: number }
+  | {
+      /**
+       * A workspace lifecycle (`.swarm`/`.grove` config) command running: `setup`
+       * before the agent launches, `teardown` after its session ends (P07). Output
+       * is streamed as a bounded tail rather than per-keystroke, keeping the durable
+       * log lean (the per-keystroke PTY stream stays out-of-band, architecture §4).
+       */
+      readonly type: "workspace.lifecycle";
+      readonly workspaceId: WorkspaceId;
+      readonly phase: "setup" | "teardown";
+      readonly status: "running" | "done" | "error";
+      /** The command line, present once it begins and on completion. */
+      readonly command?: string;
+      /** Process exit code, present on `done`/`error`. */
+      readonly exitCode?: number;
+      /** Bounded tail of the streamed output, present on `done`/`error`. */
+      readonly output?: string;
+    };
 
 export type DomainEventType = DomainEvent["type"];
 

@@ -1,6 +1,15 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type AgentStatus, launchMockAgent } from "@swarm/agent-adapters";
+import {
+  type AdapterId,
+  type AgentStatus,
+  MOCK_ADAPTER_ENABLED_ENV,
+  getPreset,
+  isMockAdapterEnabled,
+  launchMockAgent,
+  launchTerminalAdapter,
+} from "@swarm/agent-adapters";
+import type { SwarmConfig } from "@swarm/config";
 import type { Project, Session, Workspace } from "@swarm/db";
 import type { Store } from "@swarm/db/store";
 import { WorktreeEngine } from "@swarm/git-worktree";
@@ -8,20 +17,28 @@ import type { PtySupervisor, ShellKind } from "@swarm/pty-supervisor";
 import { toPosixPath } from "@swarm/shared";
 import type { SessionId, WorkspaceId } from "@swarm/shared";
 import type { EventLog } from "@swarm/sync";
+import { loadWorkspaceConfig, runLifecyclePhase } from "./lifecycle.ts";
 
 /**
- * The host-side orchestration engine (P01 + P02 + P03). Given a project repo and
- * an agent preset it: cuts an isolated git worktree (branch-per-task) via
- * {@link WorktreeEngine}, launches the agent on a real PTY through the adapter
- * (Node, ADR-0007a), maps the adapter's status stream into {@link DomainEvent}s,
- * appends them to the durable {@link EventLog} (PGlite-backed), and keeps the
- * `workspaces`/`sessions` projections in step. Platform-touching, so it lives in
- * `apps/host` rather than the Node-free `core-engine`.
+ * The host-side orchestration engine (P01 + P02 + P03 + P07). Given a project repo
+ * and an agent selection it: cuts an isolated git worktree (branch-per-task) via
+ * {@link WorktreeEngine}, runs the workspace `setup` lifecycle commands, launches
+ * the chosen adapter on a real PTY (Node, ADR-0007a), maps the adapter's status
+ * stream into {@link DomainEvent}s, appends them to the durable {@link EventLog}
+ * (PGlite-backed), keeps the `workspaces`/`sessions` projections in step, and runs
+ * `teardown` after the session ends. Platform-touching, so it lives in `apps/host`
+ * rather than the Node-free `core-engine`.
  *
- * The mock adapter is the only keyless agent and is gated behind an explicit
- * flag — it is never on a user happy path (RUBRIC §6.1). Real adapters
- * (Claude/Codex/Cursor/Gemini/generic) plug into the same status→event mapping.
+ * Adapter dispatch is explicit: a caller selects a real preset
+ * (`claude-code | codex-cli | cursor-agent | gemini-cli | generic`, the last with
+ * an explicit command) and it is launched over the universal terminal adapter. The
+ * keyless `mock` adapter is reachable ONLY when selected AND a test/dev flag is set
+ * (`SWARM_ENABLE_MOCK_ADAPTER` or an explicit `enableMock:true`); there is no
+ * default that puts the mock on a user happy path (RUBRIC §6.1).
  */
+
+/** What to dispatch: a real built-in adapter id, or the keyless `mock` (gated). */
+export type AgentSelection = AdapterId | "mock";
 export interface OrchestratorDeps {
   readonly store: Store;
   readonly eventLog: EventLog;
@@ -48,10 +65,19 @@ export interface PreparedWorkspace {
 }
 
 export interface StartAgentOptions {
+  /**
+   * Which adapter to dispatch. Required — there is no default, so the mock can
+   * never run implicitly. `generic` also needs {@link StartAgentOptions.command}.
+   */
+  readonly adapterId?: AgentSelection;
+  /** Command for the `generic` adapter (or an override for a named preset's CLI). */
+  readonly command?: string;
+  /** Args for the `generic` adapter / preset command. */
+  readonly args?: readonly string[];
   readonly shell?: ShellKind;
   /** Length of the simulated working phase in ms (mock adapter). */
   readonly workMs?: number;
-  /** File the agent writes into its worktree (defaults to the adapter default). */
+  /** File the agent writes into its worktree (mock adapter default filename). */
   readonly fileName?: string;
   /** Explicit opt-in for the keyless mock adapter (tests/dev only). */
   readonly enableMock?: boolean;
@@ -62,8 +88,11 @@ export interface AgentRun {
   readonly session: Session;
   readonly worktreePath: string;
   readonly branch: string;
-  /** Absolute (POSIX) path of the file the agent writes — for the diff viewer/tests. */
-  readonly outputFile: string;
+  /** The dispatched adapter (`mock` or a real preset id). */
+  readonly adapterId: AgentSelection;
+  /** Absolute (POSIX) file the mock agent writes — for the diff viewer/tests. Real
+   *  adapters write whatever they write, so this is undefined for them. */
+  readonly outputFile?: string;
   /** Resolves once the agent reaches a terminal state and its events are persisted. */
   readonly done: Promise<{ readonly status: AgentStatus; readonly exitCode: number }>;
   /** Terminate the agent's PTY process tree. Idempotent. */
@@ -73,11 +102,29 @@ export interface AgentRun {
 interface RunContext {
   readonly workspace: Workspace;
   readonly session: Session;
+  /** Worktree (OS-native path) — lifecycle commands run here. */
+  readonly cwdOs: string;
+  /** Project repo root (for lifecycle env + config), if known. */
+  readonly repoRoot: string;
+  /** Validated workspace config (P07), or null when there is none. */
+  readonly config: SwarmConfig | null;
   chain: Promise<void>;
   startedEmitted: boolean;
   finished: boolean;
   resolveDone: (value: { status: AgentStatus; exitCode: number }) => void;
 }
+
+/** A resolved launch plan: the keyless mock, or a real CLI over the terminal adapter. */
+type LaunchPlan =
+  | { readonly kind: "mock"; readonly selection: AgentSelection }
+  | {
+      readonly kind: "real";
+      readonly selection: AgentSelection;
+      readonly command: string;
+      readonly args: readonly string[];
+      readonly detection: ReturnType<typeof getPreset>["detection"];
+      readonly env: Readonly<Record<string, string>>;
+    };
 
 function slugify(name: string): string {
   const slug = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -192,14 +239,59 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * Validate + resolve the requested adapter BEFORE any DB write. An absent
+   * selection, a disabled mock, or a `generic` adapter without a command all
+   * throw here, so no orphan session is created and the mock never runs implicitly.
+   */
+  private resolveLaunchPlan(options: StartAgentOptions): LaunchPlan {
+    const selection = options.adapterId;
+    if (selection === undefined) {
+      throw new Error(
+        "startAgent requires an adapterId (claude-code | codex-cli | cursor-agent | gemini-cli | generic | mock)",
+      );
+    }
+    if (selection === "mock") {
+      if (!isMockAdapterEnabled(options.enableMock)) {
+        throw new Error(
+          `mock adapter is disabled; choose a real adapter, or set ${MOCK_ADAPTER_ENABLED_ENV}=1 / enableMock:true (test/dev only)`,
+        );
+      }
+      return { kind: "mock", selection };
+    }
+    const preset = getPreset(selection); // throws on an unknown id
+    let command = preset.descriptor.command;
+    let args: readonly string[] = preset.descriptor.argsTemplate;
+    const explicit = options.command?.trim();
+    if (preset.descriptor.generic) {
+      if (!explicit) {
+        throw new Error(`adapter "${selection}" requires an explicit command (options.command)`);
+      }
+      command = explicit;
+      args = options.args ?? [];
+    } else if (explicit) {
+      command = explicit; // custom install path / wrapper for a named CLI
+      args = options.args ?? args;
+    }
+    return { kind: "real", selection, command, args, detection: preset.detection, env: preset.env };
+  }
+
+  /** The project's local repo root, used to load `.grove/config.json` (P07). */
+  private async repoRootFor(workspace: Workspace): Promise<string | null> {
+    const project = await this.store.getProject(workspace.projectId);
+    return project?.localPath ?? null;
+  }
+
   private async launch(
     workspace: Workspace,
     cwdOs: string,
     options: StartAgentOptions,
   ): Promise<AgentRun> {
+    const plan = this.resolveLaunchPlan(options);
+
     const session = await this.store.createSession({
       workspaceId: workspace.id,
-      adapterId: "mock",
+      adapterId: plan.selection,
       mode: "terminal",
       status: "starting",
     });
@@ -209,40 +301,97 @@ export class Orchestrator {
       resolveDone = resolve;
     });
 
+    const repoRoot = await this.repoRootFor(workspace);
+    const config = repoRoot ? loadWorkspaceConfig(repoRoot) : null;
+
     const ctx: RunContext = {
       workspace,
       session,
+      cwdOs,
+      repoRoot: repoRoot ?? cwdOs,
+      config,
       chain: Promise.resolve(),
       startedEmitted: false,
       finished: false,
       resolveDone,
     };
 
-    // `launchMockAgent` fires onStatus("running") synchronously during launch,
-    // so the context above is fully built before this call.
-    const handle = launchMockAgent({
-      supervisor: this.supervisor,
-      workspaceId: workspace.id,
-      cwd: cwdOs,
-      shell: options.shell,
-      enable: options.enableMock ?? true,
-      workMs: options.workMs,
-      fileName: options.fileName,
-      onStatus: (status) => this.onStatus(ctx, status),
-    });
+    // P07: workspace `setup` runs to completion BEFORE the agent launches, so a
+    // marker it writes is already present when the agent's session starts.
+    if (config && config.setup.length > 0) {
+      await runLifecyclePhase({
+        supervisor: this.supervisor,
+        workspaceId: workspace.id,
+        cwd: cwdOs,
+        repoRoot: ctx.repoRoot,
+        workspaceName: workspace.name,
+        phase: "setup",
+        commands: config.setup,
+        append: (event) => this.eventLog.append(event),
+      });
+    }
+
+    // Both `launchMockAgent` and `launchTerminalAdapter` fire onStatus("running")
+    // synchronously during launch, so the context above is fully built first.
+    let handle: { stop(): Promise<void> };
+    let outputFile: string | undefined;
+    if (plan.kind === "mock") {
+      const mock = launchMockAgent({
+        supervisor: this.supervisor,
+        workspaceId: workspace.id,
+        cwd: cwdOs,
+        shell: options.shell,
+        enable: options.enableMock,
+        workMs: options.workMs,
+        fileName: options.fileName,
+        onStatus: (status) => this.onStatus(ctx, status),
+      });
+      handle = mock;
+      outputFile = mock.outputFile;
+    } else {
+      handle = launchTerminalAdapter({
+        supervisor: this.supervisor,
+        workspaceId: workspace.id,
+        command: plan.command,
+        args: plan.args,
+        cwd: cwdOs,
+        shell: options.shell,
+        detection: plan.detection,
+        env: plan.env,
+        onStatus: (status) => this.onStatus(ctx, status),
+      });
+    }
 
     const run: AgentRun = {
       workspace,
       session,
       worktreePath: toPosixPath(cwdOs),
       branch: workspace.branch,
-      outputFile: handle.outputFile,
+      adapterId: plan.selection,
+      outputFile,
       done,
       stop: () => handle.stop(),
     };
     this.runs.set(session.id, run);
     void done.finally(() => this.runs.delete(session.id));
     return run;
+  }
+
+  /** P07: run `teardown` after a session ends (best-effort), streaming its output. */
+  private async runTeardown(ctx: RunContext): Promise<void> {
+    if (!ctx.config || ctx.config.teardown.length === 0) {
+      return;
+    }
+    await runLifecyclePhase({
+      supervisor: this.supervisor,
+      workspaceId: ctx.workspace.id,
+      cwd: ctx.cwdOs,
+      repoRoot: ctx.repoRoot,
+      workspaceName: ctx.workspace.name,
+      phase: "teardown",
+      commands: ctx.config.teardown,
+      append: (event) => this.eventLog.append(event),
+    });
   }
 
   /** Map one adapter status into projection updates + durable domain events. */
@@ -303,6 +452,9 @@ export class Orchestrator {
             exitCode,
           }),
         )
+        // P07: teardown runs AFTER the session has ended; `done` resolves only once
+        // teardown completes, so callers can assert its effects deterministically.
+        .then(() => this.runTeardown(ctx))
         .then(() => {
           ctx.resolveDone({ status, exitCode });
         });

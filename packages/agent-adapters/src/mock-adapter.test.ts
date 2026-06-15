@@ -63,7 +63,9 @@ describe("mock adapter gating (never on a user happy path)", () => {
   });
 
   test("the fake CLI script it launches exists on disk", () => {
-    expect(fakeCliPath().endsWith("fake-cli.ts")).toBe(true);
+    // Plain .mjs (no TypeScript) so `node <script>` runs reliably in a PTY on the
+    // Windows CI runner (ADR-0011).
+    expect(fakeCliPath().endsWith("fake-cli.mjs")).toBe(true);
     expect(existsSync(fakeCliPath())).toBe(true);
   });
 });
@@ -82,7 +84,7 @@ describe("mock adapter integration (real PTY via Node worker)", () => {
     workDir = mkdtempSync(join(tmpdir(), "grove mock-"));
     const result = spawnSync("node", [WORKER, workDir], {
       encoding: "utf8",
-      timeout: 30_000,
+      timeout: 90_000,
     });
     const out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
 
@@ -104,5 +106,5 @@ describe("mock adapter integration (real PTY via Node worker)", () => {
     const written = join(workDir, MOCK_DEFAULT_FILENAME);
     expect(existsSync(written)).toBe(true);
     expect(readFileSync(written, "utf8")).toContain(MOCK_FILE_HEADING);
-  }, 35_000);
+  }, 95_000);
 });

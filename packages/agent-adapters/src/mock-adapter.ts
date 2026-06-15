@@ -33,9 +33,14 @@ export function isMockAdapterEnabled(enable?: boolean): boolean {
   return flag === "1" || flag === "true";
 }
 
-/** Absolute path to the fake CLI script this adapter launches. */
+/**
+ * Absolute path to the fake CLI script this adapter launches. It is a plain
+ * `.mjs` (no TypeScript) so `node <script>` runs reliably inside a PTY on the
+ * GitHub `windows-latest` runner, where Node's strip-types `.ts` execution is
+ * unreliable (ADR-0011).
+ */
 export function fakeCliPath(): string {
-  return fileURLToPath(new URL("./fake-cli.ts", import.meta.url));
+  return fileURLToPath(new URL("./fake-cli.mjs", import.meta.url));
 }
 
 export interface MockAgentOptions {
