@@ -6,6 +6,18 @@ this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-15
+
+Phase 5 — Platform & self/remote setup (P13) + packaged native apps (P14). **Green on Windows + macOS + Linux** — CI run 27579893046: the `verify` matrix + the desktop & mobile e2e jobs **plus** a new 3-OS **`package`** job that runs `electron-builder --dir` cold to validate the desktop packaging config. Independent Phase-5 Critic **ALL-PASS**.
+
+### Added
+- **One-command setup + daemon lifecycle (P13).** `grove up` — a single cross-platform (TS, no `.sh`) bootstrap: a real dependency preflight (`execFile <bin> --version`, no shell), idempotent host start (the daemon creates the PGlite store + bearer + VAPID keypair on boot), and a printed pairing QR. Real `grove start` (detached Node daemon + manifest/PID), `grove stop` (PID graceful → tree-kill, `taskkill /T` on Windows), `grove status` (PID liveness + `/healthz`).
+- **Phone-only remote path (P13).** `grove pair --remote` / `grove up --remote` spawn a **cloudflared** quick-tunnel (localtunnel MIT fallback), set the pairing endpoint to the tunnel HTTPS URL, and print a QR (`<tunnelUrl>/?code=` — the bearer never rides the QR). Because the tunnel origin is HTTPS (a secure context), on-device **service-worker install + Web Push** light up — proven by a Caddy self-signed-TLS e2e (`evidence/phase-5/secure-context.{md,png}`: SW registers + `pushManager.subscribe` resolves a real subscription). Optional `GROVE_ALLOWED_ORIGINS` host allowlist (the bearer remains the gate).
+- **Desktop installers (P14).** `apps/desktop/electron-builder.yml` — **NSIS** (Windows) / **dmg+zip** (macOS) / **AppImage+deb** (Linux), unsigned (documented SmartScreen/Gatekeeper) with brand icons (`build/icon.{ico,icns}` via a `png2icons` generator). `build:installer` / `package:dir` scripts. A CI `package` job validates `electron-builder --dir` cold on all 3 OS; a real **97.6 MB NSIS installer** + a **packaged-app GUI launch** are recorded as local evidence (`evidence/phase-5/installers.md`, `desktop-packaged-launch.png`) — closing **P14**.
+
+### Changed
+- CI: capped `turbo run test --concurrency=2` to stop real-process test suites (host daemons, PTYs, the CLI lifecycle, `execFile` dep probes) starving the event loop on small runners (a macOS verify flake) — deterministic on all 3 OS. Extends the ADR-0011 gate discipline.
+
 ## [0.5.0] - 2026-06-15
 
 Phase 4 — Mobile-native PWA (`apps/mobile`): full agent orchestration from the phone (P12), on `@swarm/ui` + the **real** host. **Green on Windows + macOS + Linux** — CI run 27567194903: the `verify` matrix (lint/typecheck/build/test) on all three OSes **plus** a new real-host Playwright **`e2e (mobile)`** job (pairing, read journeys, touch terminal, dispatch, offline SW + push opt-in at a phone viewport) alongside the desktop e2e. Independent Phase-4 Critic **ALL-PASS** incl. the §6.3 anti-slop design bar; axe-core a11y **0 critical/serious**; phone speed budgets recorded (`evidence/phase-4/`).
@@ -85,7 +97,8 @@ Phase 0 — Recon & Architecture. Skeleton compiles; CI green on Windows + macOS
 - Monorepo skeleton (Bun workspaces + Turborepo): 11 `@swarm/*` packages (`shared`, `db`, `core-engine`, `agent-adapters`, `git-worktree`, `pty-supervisor`, `config`, `sync`, `api`, `terminal`, `ui`) and 5 apps (`host`, `cli`, `desktop`, `mobile`, `docs`), each with real typed contracts and a genuine inter-package type graph. Biome + strict `tsc` + `bun test`.
 - CI: `.github/workflows/ci.yml` matrix over `windows-latest` + `macos-latest` + `ubuntu-latest` (install → lint → typecheck → build → test). Green: run 27519073829.
 
-[Unreleased]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.2.0...v0.3.0

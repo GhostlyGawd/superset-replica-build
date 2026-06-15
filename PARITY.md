@@ -18,11 +18,11 @@ Status legend: ☐ not started · ◐ in progress · ✅ verified.
 
 ## Spec additions (beyond original)
 - ✅ **P12 Mobile-native control** — full orchestration from the phone (§8). _Phase 4 (v0.5.0): installable offline-first PWA on @swarm/ui — QR single-use-code pairing (bearer in IndexedDB), live read journeys (workspace detail, Agents roll-up, read-only diff), touch terminal over the /terminal WS + accessory bar, real-agent dispatch, injectManifest SW + Web Push/VAPID. Green 3-OS CI run 27567194903 (verify matrix + e2e (mobile) job); independent Phase-4 Critic ALL-PASS incl §6.3; axe 0 critical/serious; phone perf budgets PASS. On-device push lights up at the Phase-5 secure origin. ADR-0014._
-- ☐ **P13 Self-bootstrap + phone-only remote setup** — stand it up without touching the PC.
-- ◐ **P14 Native Windows 10/11 + macOS + Linux** — engine + desktop + full workflow, not WSL-only.
+- ✅ **P13 Self-bootstrap + phone-only remote setup** — stand it up without touching the PC. _Phase 5 (v0.6.0): `grove up` one-command cross-platform bootstrap (dep preflight + idempotent detached daemon + pair QR) + `grove start/stop/status`; `grove pair/up --remote` cloudflared tunnel-URL pairing → on-device secure-context SW+push (Caddy-TLS proof, evidence/phase-5/secure-context.*). Green 3-OS CI run 27579893046; Critic ALL-PASS. ADR-0015/0017._
+- ✅ **P14 Native Windows 10/11 + macOS + Linux** — engine + desktop + full workflow, not WSL-only.
       Built-in terminal hosts Windows shells (PowerShell/cmd/Git Bash/WSL) + Unix shells; user presets run on Windows shells;
       agent process trees killed correctly on every OS; paths/EOL/long-paths handled.
-      **Proven by green `windows-latest` CI + Windows e2e evidence.** _Engine: ✅ green windows-latest CI run 27536255083 (Phase 2). Desktop renderer + real-host journey: ✅ green windows-latest in the Phase-3 3-OS CI run 27550630185 (verify matrix) + e2e job. Remaining for ✅ full: packaged GUI launch on Windows (Phase 5)._
+      **Proven by green `windows-latest` CI + Windows e2e evidence.** _Engine ✅ (run 27536255083, Phase 2); desktop renderer + real-host journey ✅ green windows-latest (run 27550630185); packaging validated cold on all 3 OS (`package` job, run 27579893046) + a real Windows NSIS installer & packaged-app GUI launch (evidence/phase-5/installers.md + desktop-packaged-launch.png) — Phase 5 (v0.6.0). ADR-0002/0016._
 
 ## Evidence index (filled as items verify)
 | ID | Evidence path | Verified |

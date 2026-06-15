@@ -15,18 +15,19 @@
     }
   },
   "host_os": "windows",
-  "current_phase": 5,
+  "current_phase": 6,
   "phase_status": {
     "0_recon_architecture": "done (v0.1.0; CI run 27519073829; Critic 11/0 PASS)",
     "1_brand_design": "done (v0.2.0; CI run 27520745796; Critic 5/5 PASS; screenshots evidence/phase-1)",
     "2_host_engine": "done (v0.3.0; CI run 27536255083 GREEN 3 OSes; Critic review-3 PASS; P01/P02/P03/P04/P07/P10/P11 proven incl Windows; no quarantines)",
     "3_desktop_client": "done (v0.4.0; CI run 27550630185 GREEN 3 OSes [verify matrix] + e2e (desktop) job; independent Critic ALL-PASS incl §6.3; axe a11y 0 critical/serious; perf budgets recorded; P05/P06/P08/P09 = Done. Billing unblocked by making repo public — ADR-0012.)",
     "4_mobile_client": "done (v0.5.0; CI run 27567194903 GREEN 3 OSes [verify] + e2e (desktop) + e2e (mobile); independent Phase-4 Critic ALL-PASS incl §6.3; axe a11y 0 critical/serious; phone perf budgets PASS; P12 done. PWA pairing [QR single-use code -> bearer in IndexedDB], read journeys, touch terminal+dispatch, offline SW + Web Push/VAPID. On-device push lights up at the Phase-5 secure origin.)",
-    "5_platform_setup": "in_progress",
+    "5_platform_setup": "done (v0.6.0; CI run 27579893046 GREEN — verify x3 + e2e desktop+mobile + new package x3 [electron-builder --dir cold on all 3 OS]; independent Phase-5 Critic ALL-PASS. grove up/start/stop/status lifecycle (P13); cloudflared remote tunnel-URL pairing -> on-device SW+push (Caddy-TLS secure-context proof); electron-builder NSIS/dmg/AppImage; real 97.6MB NSIS installer + packaged GUI launch evidence (P14). Linear P13/P14 Done.)",
+    "6_hardening_launch": "in_progress",
     "6_hardening_launch": "not_started"
   },
-  "version": "0.5.0",
-  "next_release_target": "0.6.0",
+  "version": "0.6.0",
+  "next_release_target": "1.0.0",
   "toolchain": {
     "git": "2.53.0", "gh": "2.89.0 (authed: GhostlyGawd)", "node": "24.14.1",
     "npm": "11.11.0", "bun": "installed", "pnpm": "installed",
