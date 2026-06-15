@@ -6,8 +6,13 @@
     "tagline": "Orchestrate swarms of CLI coding agents in parallel across isolated git worktrees.",
     "replica_of": "https://github.com/superset-sh/superset",
     "workspace_dir": "D:/GitHub Projects/superset-replica-build",
-    "github_repo": null,
-    "linear_project": null
+    "github_repo": "https://github.com/GhostlyGawd/superset-replica-build",
+    "linear_project": {
+      "id": "a778bfa7-a33c-4069-b217-33169206345d",
+      "url": "https://linear.app/ghostlygawd/project/swarm-superset-replica-65f1d5fd8da9",
+      "team": "Ghostlygawd",
+      "name": "SWARM — Superset Replica"
+    }
   },
   "host_os": "windows",
   "current_phase": 0,

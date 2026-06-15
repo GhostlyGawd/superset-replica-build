@@ -10,6 +10,8 @@ this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0
 - Build workspace, cross-platform git config (`core.longpaths`, `core.autocrlf input`), `.gitattributes` EOL normalization.
 - Blackboard: `STATE.json`, `DECISIONS.md` (ADR-0001..0009), `RUBRIC.md` (§6), `PARITY.md` (§5), `evidence/`.
 - Preflight toolchain self-heal: installed `bun`, `pnpm` (npm), `ripgrep`, `caddy` (scoop).
+- Phase 0 recon: `docs/recon.md` (original Superset mechanisms, shortcuts incl. Windows column, `.superset/config.json` schema) and `docs/architecture.md` (headless host engine + thin clients; monorepo topology; tRPC + Drizzle contracts; WS event-log sync; P01–P14 → package/phase map).
+- Project tracking in Linear: "SWARM — Superset Replica" with 7 phase milestones + 14 parity issues (P01–P14).
 
 ### Changed
 
