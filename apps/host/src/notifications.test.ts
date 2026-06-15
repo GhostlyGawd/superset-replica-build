@@ -164,7 +164,10 @@ afterAll(async () => {
       // best-effort.
     }
   }
-});
+  // Forced + retried Windows `rm` of the real-host worker's data dir can exceed bun's
+  // 5s default hook timeout under heavy parallel `turbo` load; give it headroom so a
+  // slow cleanup is a slow PASS, never a contention timeout. Assertions unchanged.
+}, 60_000);
 
 describe("@swarm/host — Web Push send path over the real host (via Node)", () => {
   test("the notifications worker run passed end-to-end", () => {

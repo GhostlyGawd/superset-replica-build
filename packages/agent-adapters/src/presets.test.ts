@@ -60,7 +60,9 @@ describe("detectAdapter (graceful degradation, never fakes success)", () => {
     // A non-empty path that actually exists on disk — not an exact string.
     expect(result.resolvedPath?.length).toBeGreaterThan(0);
     expect(existsSync(result.resolvedPath ?? "")).toBe(true);
-  });
+    // Real on-disk CLI probe; the PATH/where.exe lookup can run past bun's 5s default
+    // body timeout under heavy parallel `turbo` load — give it headroom. Assertions unchanged.
+  }, 60_000);
 
   test("a missing CLI reports not_found with guidance, does not throw", async () => {
     const preset: AgentPreset = {
@@ -71,10 +73,14 @@ describe("detectAdapter (graceful degradation, never fakes success)", () => {
     const result = await detectAdapter(preset);
     expect(result.status).toBe("not_found");
     expect(result.detail.toLowerCase()).toContain("not");
-  });
+    // The missing-CLI probe walks PATH (where.exe/which) and is the documented flaker
+    // [~5005ms] under load — give it headroom past bun's 5s default. Assertions unchanged.
+  }, 60_000);
 
   test("the generic adapter reports unknown (it has no fixed command)", async () => {
     const result = await detectAdapter(getPreset("generic"));
     expect(result.status).toBe("unknown");
-  });
+    // Real adapter-detection path; give headroom past bun's 5s default under heavy
+    // parallel `turbo` load. Assertions unchanged.
+  }, 60_000);
 });

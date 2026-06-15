@@ -138,7 +138,10 @@ afterAll(async () => {
       // best-effort: a leftover temp dir must never fail the run.
     }
   }
-});
+  // The forced + retried Windows `rm` of git worktrees + PGlite data can run past
+  // bun's 5s default hook timeout under heavy parallel `turbo` load; give it headroom
+  // so a slow cleanup is a slow PASS, never a contention timeout. Assertions unchanged.
+}, 60_000);
 
 describe("@swarm/host integration — parallel isolated agents (real host, via Node)", () => {
   test("the host worker run passed end-to-end", () => {

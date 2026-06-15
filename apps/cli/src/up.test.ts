@@ -40,7 +40,9 @@ describe("@swarm/cli — dep-verify (real execFile, cross-platform, no mocks)", 
     expect(check.ok).toBe(true);
     expect(check.major).not.toBeNull();
     expect(check.major ?? 0).toBeGreaterThanOrEqual(18);
-  });
+    // Real `execFile` version probe; can run past bun's 5s default body timeout under
+    // heavy parallel `turbo` load — give it headroom. Assertions unchanged.
+  }, 60_000);
 
   test("a bogus tool path reports ✗ and never throws", async () => {
     const bogus: ToolSpec = {
@@ -54,7 +56,9 @@ describe("@swarm/cli — dep-verify (real execFile, cross-platform, no mocks)", 
     expect(check.found).toBe(false);
     expect(check.ok).toBe(false);
     expect(check.version).toBeNull();
-  });
+    // The missing-binary probe walks PATH and can run past bun's 5s default body
+    // timeout under heavy parallel `turbo` load — give it headroom. Assertions unchanged.
+  }, 60_000);
 
   test("verifyDeps fails on a present-but-too-old required tool, but never on an optional miss", async () => {
     const tooNew: ToolSpec = {
@@ -79,7 +83,9 @@ describe("@swarm/cli — dep-verify (real execFile, cross-platform, no mocks)", 
     const okReport = await verifyDeps([optionalMissing]);
     expect(okReport.ok).toBe(true);
     expect(formatDepTable(okReport)).toContain("opt-tool");
-  });
+    // Two real `execFile` probes; can run past bun's 5s default body timeout under
+    // heavy parallel `turbo` load — give it headroom. Assertions unchanged.
+  }, 60_000);
 
   test("the real default toolchain (node/bun/git) verifies green here", async () => {
     const report = await verifyDeps(DEFAULT_TOOLS);
@@ -88,7 +94,9 @@ describe("@swarm/cli — dep-verify (real execFile, cross-platform, no mocks)", 
     for (const check of required) {
       expect(check.found).toBe(true);
     }
-  });
+    // Probes the whole default toolchain (node/bun/git) via real `execFile`; can run
+    // past bun's 5s default body timeout under load — give it headroom. Assertions unchanged.
+  }, 60_000);
 });
 
 const TMP_PREFIX = join(tmpdir(), "grove cli-up-");

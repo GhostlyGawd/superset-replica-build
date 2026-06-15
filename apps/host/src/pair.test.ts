@@ -120,7 +120,10 @@ afterAll(async () => {
       // best-effort: a leftover temp dir must never fail the run.
     }
   }
-});
+  // Forced + retried Windows `rm` of the real-host worker's data dir can exceed bun's
+  // 5s default hook timeout under heavy parallel `turbo` load; give it headroom so a
+  // slow cleanup is a slow PASS, never a contention timeout. Assertions unchanged.
+}, 60_000);
 
 describe("@swarm/host — pairing round-trip over real HTTP (real host, via Node)", () => {
   test("the pair worker run passed end-to-end", () => {

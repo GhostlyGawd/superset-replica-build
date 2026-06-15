@@ -75,7 +75,10 @@ beforeAll(async () => {
     vapidPublicKey: "test-vapid-public-key",
   };
   caller = createAppCaller(services);
-});
+  // Booting a REAL PGlite store + initializing an on-disk git repo can run past bun's
+  // 5s default hook timeout under heavy parallel `turbo` load; give the setup headroom
+  // so a slow boot is a slow PASS, never a contention timeout. Assertions unchanged.
+}, 60_000);
 
 afterAll(async () => {
   await store?.close();
@@ -86,7 +89,10 @@ afterAll(async () => {
       // best-effort temp cleanup
     }
   }
-});
+  // Closing PGlite + the forced/retried Windows `rm` of its data dir + worktrees can
+  // exceed bun's 5s default hook timeout under load; give teardown headroom so a slow
+  // cleanup is a slow PASS, never a contention timeout. Assertions unchanged.
+}, 60_000);
 
 describe("@swarm/host wave-B2 procedures (settings + projects.open), real round-trip", () => {
   test("settings.getHotkeys starts empty", async () => {
