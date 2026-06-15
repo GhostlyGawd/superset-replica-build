@@ -15,18 +15,18 @@
     }
   },
   "host_os": "windows",
-  "current_phase": 2,
+  "current_phase": 3,
   "phase_status": {
     "0_recon_architecture": "done (v0.1.0; CI run 27519073829; Critic 11/0 PASS)",
     "1_brand_design": "done (v0.2.0; CI run 27520745796; Critic 5/5 PASS; screenshots evidence/phase-1)",
-    "2_host_engine": "in_progress",
-    "3_desktop_client": "not_started",
+    "2_host_engine": "done (v0.3.0; CI run 27536255083 GREEN 3 OSes; Critic review-3 PASS; P01/P02/P03/P04/P07/P10/P11 proven incl Windows; no quarantines)",
+    "3_desktop_client": "in_progress",
     "4_mobile_client": "not_started",
     "5_platform_setup": "not_started",
     "6_hardening_launch": "not_started"
   },
-  "version": "0.2.0",
-  "next_release_target": "0.3.0",
+  "version": "0.3.0",
+  "next_release_target": "0.4.0",
   "toolchain": {
     "git": "2.53.0", "gh": "2.89.0 (authed: GhostlyGawd)", "node": "24.14.1",
     "npm": "11.11.0", "bun": "installed", "pnpm": "installed",
@@ -49,14 +49,14 @@
     "tunnel": "cloudflared / localtunnel (OSS) — Phase 5"
   },
   "next_actions": [
-    "Phase 2 wave 1a: node-pty/ConPTY validation gate on Windows (ADR-0007) — confirm node-pty loads+spawns PTY on Node 24; spike pty-supervisor (spawn PowerShell+cmd, stream ANSI, tree-kill); recommend pty pkg + engine Node version; evidence/phase-2/pty-validation.md",
-    "Phase 2 wave 1b: fix the critic_followups_for_phase2 contracts (complete @swarm/api routers; SwarmConfig array-of-commands + per-field overlay) — keep CI green",
-    "Phase 2 waves 2+: git-worktree engine, agent adapters (claude/codex/cursor/gemini/generic), Drizzle+PGlite persistence, Hono+tRPC secure API, WS event-log sync; integration tests prove parallel isolated agents stream status; Critic gate -> v0.3.0"
+    "Phase 3 (Desktop Client, Electron): apps/desktop Electron shell + React renderer on @swarm/ui + host tRPC/sync client (endpoint+bearer token from ~/.grove/host/manifest.json); feature UI = terminal (xterm.js: tabs, split right/down, clear, find, preset slots Ctrl+1-9, prev/next tab) [P05], diff viewer + inline editor [P06], workspace nav/create/quick-create/open-project + open-in-external [P08/P09], customizable keyboard shortcuts + settings surface [P09]; wire to the REAL host engine; Playwright e2e of the renderer; Critic gate incl §6.3 anti-slop design bar + desktop & phone screenshots -> v0.4.0",
+    "[Phase 6 / launch sign-off] produce the §6.2/§6.4 reports the final Critic flagged as missing: performance report + recorded speed budgets (terminal-stream latency, interaction latency, cold start) and a license-audit report under evidence/ (non-blocking for v0.3.0; required before v1.0.0)",
+    "[harness retro follow-up] route the CI-gate lessons (turbo-cache false-green -> --force; GH-windows ConPTY discipline -> direct PTY spawn+onExit / process.execPath / child_process for batch / worker process.exit / bounded fs.rm; fresh independent Critics catch fakes) into recursive-harness artifacts via /harness-pr"
   ],
   "critic_followups_for_phase2": [
     "[DONE wave-1] @swarm/api completed to all 13 routers of architecture §3.1; SwarmConfig now Command[] arrays + per-OS shells + per-field overlay (9 tests)",
     "[phase-1 a11y nit, non-blocking] extend tokens.test.ts to assert fg-subtle AA on raised+overlay surfaces (currently only surface); fold into Phase 6 a11y audit if it forces a token tweak"
   ],
   "blocked": [],
-  "last_updated": "2026-06-14"
+  "last_updated": "2026-06-15"
 }

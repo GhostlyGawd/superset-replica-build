@@ -6,6 +6,10 @@ this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-15
+
+Phase 2 — cross-platform host engine: worktree isolation, PTY agent supervision, agent adapters (real + a strictly test-gated mock), Drizzle/PGlite persistence, WebSocket event-log sync, and a secure Hono+tRPC host daemon. The parallel-agents integration proof (P01/P02/P04/P10/P11), real `generic` adapter dispatch (P03), and workspace lifecycle (P07) are **green on Windows + macOS + Linux** (CI run 27536255083) — Windows proven by root-cause fixes, not quarantines.
+
 ### Added
 - **Host engine — PTY supervisor (Phase 2 wave 1).** `packages/pty-supervisor`: real `PtySupervisor` (spawn/write/onData/resize/kill, per-session PID tracking + tree-kill) over `@homebridge/node-pty-prebuilt-multiarch`, with a real-PTY integration test (spawns PowerShell + cmd, asserts streamed output and clean process-tree termination). CI gains `setup-node`.
 - Completed `@swarm/api` tRPC surface to all 13 routers of architecture §3.1 (sessions, presets, ports, notifications, settings, host, auth + completed config/diffs/workspaces/agents/terminal).
@@ -49,6 +53,7 @@ Phase 0 — Recon & Architecture. Skeleton compiles; CI green on Windows + macOS
 - Monorepo skeleton (Bun workspaces + Turborepo): 11 `@swarm/*` packages (`shared`, `db`, `core-engine`, `agent-adapters`, `git-worktree`, `pty-supervisor`, `config`, `sync`, `api`, `terminal`, `ui`) and 5 apps (`host`, `cli`, `desktop`, `mobile`, `docs`), each with real typed contracts and a genuine inter-package type graph. Biome + strict `tsc` + `bun test`.
 - CI: `.github/workflows/ci.yml` matrix over `windows-latest` + `macos-latest` + `ubuntu-latest` (install → lint → typecheck → build → test). Green: run 27519073829.
 
-[Unreleased]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/GhostlyGawd/superset-replica-build/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/GhostlyGawd/superset-replica-build/releases/tag/v0.1.0
