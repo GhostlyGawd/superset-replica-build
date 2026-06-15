@@ -25,6 +25,15 @@ export {
 } from "./orchestrator.ts";
 export { PgliteEventLogStore } from "./pglite-event-log-store.ts";
 export {
+  PairingStore,
+  PAIRING_CODE_LENGTH,
+  PAIRING_CODE_TTL_MS,
+  normalizeCode,
+  type PairingCode,
+  type PairingRedeemResult,
+  type PairingStoreOptions,
+} from "./pair.ts";
+export {
   createAppRouter,
   createAppCaller,
   osName,

@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@swarm/host": "workspace:*"
+    "@swarm/host": "workspace:*",
+    "qrcode-terminal": "^0.12.0"
   }
 }

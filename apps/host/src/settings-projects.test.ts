@@ -10,6 +10,7 @@ import type { PtySupervisor } from "@swarm/pty-supervisor";
 import { asId } from "@swarm/shared";
 import { EventLog } from "@swarm/sync";
 import { Orchestrator } from "./orchestrator.ts";
+import { PairingStore } from "./pair.ts";
 import { PgliteEventLogStore } from "./pglite-event-log-store.ts";
 import { type HostServices, createAppCaller, osName } from "./trpc.ts";
 import { HOST_VERSION } from "./version.ts";
@@ -69,6 +70,8 @@ beforeAll(async () => {
     deviceName: "grove-b2",
     owner: "",
     endpoint: () => "http://127.0.0.1:0",
+    token: "test-bearer",
+    pairing: new PairingStore(),
   };
   caller = createAppCaller(services);
 });

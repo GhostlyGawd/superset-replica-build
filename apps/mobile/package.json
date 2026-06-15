@@ -7,17 +7,24 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./src"
+    "test": "bun test ./src",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
+    "@swarm/db": "workspace:*",
+    "@swarm/host": "workspace:*",
+    "@swarm/sync": "workspace:*",
     "@swarm/ui": "workspace:*",
+    "@trpc/client": "^11.17.0",
     "lucide-react": "^1.18.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@swarm/pty-supervisor": "workspace:*",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",

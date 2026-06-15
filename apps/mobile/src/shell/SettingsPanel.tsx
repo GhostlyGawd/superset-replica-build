@@ -1,7 +1,7 @@
-import { Badge, useTheme } from "@swarm/ui/react";
+import { useTheme } from "@swarm/ui/react";
 import { Moon, Sun } from "lucide-react";
+import type { ReactNode } from "react";
 import { MOBILE_VERSION } from "../version.ts";
-import { ConnectAffordance, ConnectHint } from "./ConnectAffordance.tsx";
 
 function SectionLabel({ children }: { readonly children: string }) {
   return (
@@ -44,8 +44,12 @@ function ThemeChoice() {
   );
 }
 
-/** Settings section content — real, local, and working today (no host required). */
-export function SettingsPanel() {
+/**
+ * Settings content — theme + about are local and work without a host; the
+ * Connection section is supplied by the caller (`connectionSlot`) so it renders the
+ * live paired-host card once the phone is linked (ADR-0014).
+ */
+export function SettingsPanel({ connectionSlot }: { readonly connectionSlot: ReactNode }) {
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-2">
@@ -55,24 +59,7 @@ export function SettingsPanel() {
 
       <section className="flex flex-col gap-2">
         <SectionLabel>Connection</SectionLabel>
-        <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-fg">Host</span>
-            <Badge tone="idle" dot>
-              Not paired
-            </Badge>
-          </div>
-          <p className="text-xs text-fg-muted">
-            This phone is not linked to a Grove host yet. Pair one to drive your worktrees, agents,
-            and terminals from here.
-          </p>
-          <div className="flex flex-col items-start gap-1.5">
-            <ConnectAffordance />
-            <p className="text-2xs text-fg-subtle">
-              <ConnectHint />
-            </p>
-          </div>
-        </div>
+        {connectionSlot}
       </section>
 
       <section className="flex flex-col gap-2">

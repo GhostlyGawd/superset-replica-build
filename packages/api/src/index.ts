@@ -250,6 +250,31 @@ export interface HostRouter {
   connect(input: { token: string }): Promise<Ok & { resumeToken: string }>;
 }
 
+// router: pair (mobile PWA bootstrap — ADR-0014)
+/** A minted pairing code: the high-entropy, single-use, short-lived secret a QR carries. */
+export interface PairingCodeInfo {
+  /** The code itself — NOT the bearer; safe to print/scan. */
+  readonly code: string;
+  /** The host endpoint a redeemer should reach (same-origin for the served PWA). */
+  readonly endpoint: string;
+  /** ISO-8601 instant the code stops being valid. */
+  readonly expiresAt: string;
+}
+
+/** What a successful `pair.redeem` hands back — this is where the bearer first reaches the phone. */
+export interface PairingGrant {
+  readonly endpoint: string;
+  readonly token: string;
+  readonly resumeToken: string;
+}
+
+export interface PairRouter {
+  /** Mint a single-use code (bearer-gated; the `grove pair` CLI calls this). */
+  start(): Promise<PairingCodeInfo>;
+  /** PUBLIC: exchange a valid, unused, unexpired code for the bearer, exactly once. */
+  redeem(input: { code: string }): Promise<PairingGrant>;
+}
+
 // router: auth
 /**
  * The authenticated user session — distinct from the agent `Session` (db). Auth
@@ -284,6 +309,7 @@ export interface AppRouter {
   readonly notifications: NotificationsRouter;
   readonly settings: SettingsRouter;
   readonly host: HostRouter;
+  readonly pair: PairRouter;
   readonly auth: AuthRouter;
 }
 

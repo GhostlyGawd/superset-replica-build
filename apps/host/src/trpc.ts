@@ -9,6 +9,7 @@ import { TRPCError, initTRPC } from "@trpc/server";
 import { z } from "zod";
 import { openExternal } from "./open-external.ts";
 import type { Orchestrator } from "./orchestrator.ts";
+import type { PairingStore } from "./pair.ts";
 import { probeGitRepo } from "./repo-probe.ts";
 
 /** Settings persistence is scoped to the desktop surface (P09). */
@@ -54,6 +55,10 @@ export interface HostServices {
   readonly owner: string;
   /** Resolved loopback endpoint, e.g. `http://127.0.0.1:8787` (known after listen). */
   endpoint(): string;
+  /** The host bearer — handed out by `pair.redeem` on a valid code, never otherwise. */
+  readonly token: string;
+  /** Single-use pairing codes that bootstrap the mobile PWA (ADR-0014). */
+  readonly pairing: PairingStore;
 }
 
 export interface HostContext {
@@ -112,6 +117,44 @@ export function createAppRouter() {
           owner: s.owner,
         };
       }),
+    }),
+
+    /**
+     * Pairing bootstrap for the mobile PWA (ADR-0014). `start` is bearer-gated
+     * (it rides the same `/trpc/*` guard as every other procedure) and is what the
+     * `grove pair` CLI calls to mint a QR-able code. `redeem` is PUBLIC — the host
+     * server whitelists `/trpc/pair.redeem` ahead of the bearer guard — because the
+     * phone has no bearer yet; a valid, unused, unexpired code is exchanged for the
+     * bearer exactly once. The bearer itself never appears in the QR/URL.
+     */
+    pair: t.router({
+      start: t.procedure.input(z.object({}).optional()).mutation(({ ctx }) => {
+        const { code, expiresAt } = ctx.services.pairing.issue();
+        return {
+          code,
+          endpoint: ctx.services.endpoint(),
+          expiresAt: new Date(expiresAt).toISOString(),
+        };
+      }),
+      redeem: t.procedure
+        .input(z.object({ code: z.string().min(1).max(64) }))
+        .mutation(({ ctx, input }) => {
+          const result = ctx.services.pairing.redeem(input.code);
+          if (!result.ok) {
+            throw new TRPCError({
+              code: result.reason === "locked" ? "TOO_MANY_REQUESTS" : "UNAUTHORIZED",
+              message:
+                result.reason === "locked"
+                  ? "too many pairing attempts; try again shortly"
+                  : "invalid or expired pairing code",
+            });
+          }
+          return {
+            endpoint: ctx.services.endpoint(),
+            token: ctx.services.token,
+            resumeToken: result.resumeToken,
+          };
+        }),
     }),
 
     agents: t.router({

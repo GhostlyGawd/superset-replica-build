@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, Server } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { trpcServer } from "@hono/trpc-server";
 import { openStore } from "@swarm/db/store";
 import type { Store } from "@swarm/db/store";
@@ -15,6 +17,7 @@ import { type SyncServer, createSyncServer } from "@swarm/sync/server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { Orchestrator } from "./orchestrator.ts";
+import { PairingStore } from "./pair.ts";
 import { PgliteEventLogStore } from "./pglite-event-log-store.ts";
 import { type TerminalServer, createTerminalServer } from "./terminal-server.ts";
 import { type HostServices, createAppRouter, osName } from "./trpc.ts";
@@ -23,6 +26,18 @@ import { HOST_VERSION } from "./version.ts";
 const DEFAULT_BIND_HOST = "127.0.0.1";
 const SYNC_PATH = "/sync";
 const TERMINAL_PATH = "/terminal";
+
+/** The PWA's public bootstrap — exchanged for the bearer, so it cannot require one. */
+const PUBLIC_PAIR_REDEEM_PATH = "/trpc/pair.redeem";
+
+/**
+ * The built mobile PWA's `dist/`, resolved relative to this module so it is found
+ * whether the host runs from source (`apps/host/src`) or its build (`apps/host/dist`)
+ * — both sit one level under `apps/host`, so `../../mobile/dist` lands on the PWA.
+ */
+function defaultPwaDir(): string {
+  return fileURLToPath(new URL("../../mobile/dist", import.meta.url));
+}
 
 /** On-disk handshake a local client reads to find + authenticate the host. */
 export interface HostManifest {
@@ -56,6 +71,11 @@ export interface StartHostOptions {
   readonly worktreesRoot?: string;
   /** Sync heartbeat interval (ms); 0 disables. Default 15000. */
   readonly heartbeatMs?: number;
+  /**
+   * Directory of the built mobile PWA to serve same-origin at `/` (ADR-0014).
+   * Defaults to `apps/mobile/dist`; static serving is skipped when it is absent.
+   */
+  readonly pwaDir?: string;
 }
 
 export interface RunningHost {
@@ -118,6 +138,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
 
   let boundPort = options.port ?? 0;
   const endpoint = (): string => `http://${bindHost}:${boundPort}`;
+  const pairing = new PairingStore();
 
   const services: HostServices = {
     store,
@@ -129,13 +150,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     deviceName: options.deviceName ?? "grove-host",
     owner: options.owner ?? "",
     endpoint,
+    token,
+    pairing,
   };
 
   const appRouter = createAppRouter();
   const app = new Hono();
 
-  // Unauthenticated liveness probe (carries no state).
-  app.get("/", (c) => c.json({ ok: true, name: APP_CODENAME, hostId, online: true }));
+  // Unauthenticated liveness probe (carries no state). Relocated off `/` so the
+  // host can serve the PWA's index there (ADR-0014); callers/tests use `/healthz`.
+  app.get("/healthz", (c) => c.json({ ok: true, name: APP_CODENAME, hostId, online: true }));
 
   // Browser-based clients (the desktop renderer's dev server / file origin, the
   // mobile PWA) reach the host cross-origin, so the tRPC surface answers CORS
@@ -153,14 +177,33 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     }),
   );
 
-  // Everything under /trpc requires the bearer token (P11).
+  // Everything under /trpc requires the bearer token (P11) — EXCEPT the public
+  // pairing bootstrap. `pair.redeem` exchanges a single-use code for the bearer, so
+  // it cannot itself demand one; it is whitelisted here, ahead of the guard, exactly
+  // like the CORS preflight above (ADR-0014). A batched call would change the path
+  // (e.g. `/trpc/pair.redeem,workspaces.list`) and so still hit the guard — the PWA
+  // calls redeem standalone, with its own bearer-less client.
   app.use("/trpc/*", async (c, next) => {
+    if (c.req.path === PUBLIC_PAIR_REDEEM_PATH) {
+      return next();
+    }
     if (c.req.header("Authorization") !== `Bearer ${token}`) {
       return c.json({ error: "unauthorized" }, 401);
     }
     return next();
   });
   app.use("/trpc/*", trpcServer({ router: appRouter, createContext: () => ({ services }) }));
+
+  // Serve the built PWA same-origin (ADR-0014 decision 1): the host IS the app
+  // origin, so there is no CORS/origin ambiguity and `localhost` is a secure context.
+  // Static assets need NO bearer to LOAD — only `/trpc` does. The `/sync` + `/terminal`
+  // WebSocket upgrades ride the raw server (below), so they are untouched by this.
+  // Unknown navigations fall back to `index.html` (single-page app).
+  const pwaDir = options.pwaDir ?? defaultPwaDir();
+  if (existsSync(pwaDir)) {
+    app.use("/*", serveStatic({ root: pwaDir }));
+    app.get("*", serveStatic({ root: pwaDir, path: "index.html" }));
+  }
 
   // Bind, then learn the ephemeral port.
   const server = await new Promise<Server>((resolve) => {
@@ -252,6 +295,8 @@ export interface RunDaemonOptions {
   readonly manifestDir?: string;
   readonly worktreesRoot?: string;
   readonly heartbeatMs?: number;
+  /** Override the served PWA directory; defaults to the built `apps/mobile/dist`. */
+  readonly pwaDir?: string;
 }
 
 /**
@@ -276,6 +321,7 @@ export async function runDaemon(options: RunDaemonOptions = {}): Promise<Running
     manifestDir: options.manifestDir,
     worktreesRoot: options.worktreesRoot,
     heartbeatMs: options.heartbeatMs,
+    pwaDir: options.pwaDir,
   });
 
   const baseClose = running.close;
