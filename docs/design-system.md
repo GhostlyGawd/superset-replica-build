@@ -1,9 +1,9 @@
 # Grove — Design System
 
-The visual and interaction system for **Grove** (codename SWARM): a 1:1, cross-platform, OSS
-replica of Superset. Grove orchestrates swarms of CLI coding agents in parallel across isolated
-git worktrees, with a live terminal, diff viewer, and real-time multi-agent monitoring — on
-desktop and phone.
+The visual and interaction system for **Grove** (codename SWARM): mission control for a swarm of
+CLI coding agents — calm surface, swarming depth. Grove orchestrates swarms of CLI coding agents
+in parallel across isolated git worktrees, with a live terminal, diff viewer, and real-time
+multi-agent monitoring — on desktop and phone, cross-platform and fully OSS.
 
 Implemented in `packages/ui` (`@swarm/ui`). The token contract is `@swarm/ui` (framework-
 agnostic); React primitives are `@swarm/ui/react`; the Tailwind preset is

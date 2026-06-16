@@ -1,15 +1,14 @@
 # architecture.md — SWARM Target Architecture
 
-> Our 1:1, cross-platform, OSS replica of Superset. Codename **SWARM**. This doc is binding
-> for every later phase; it must not contradict `DECISIONS.md` (ADR-0001..0009) or `PARITY.md`
-> (P01–P14). For what the original does, see `docs/recon.md`.
+> Grove's target architecture — a cross-platform, OSS, self-hosted swarm orchestrator. Codename
+> **SWARM**. This doc is binding for every later phase; it must not contradict `DECISIONS.md`
+> (ADR-0001..0009) or `PARITY.md` (P01–P14). Prior-art research is in `docs/recon.md`.
 
 ## 0. Thesis
 
-The original is macOS-first Electron + Neon(cloud Postgres) + ElectricSQL + Docker + a hosted
-relay, with a React Native mobile app. We keep the **product** (parallel CLI agents in
-isolated worktrees, terminal, diff/edit, presets, monitoring, client/host sync) and swap the
-**substrate** for a Windows-first, zero-Docker, OSS, self-hosted stack:
+Grove delivers parallel CLI-agent orchestration (agents in isolated worktrees, terminal,
+diff/edit, presets, monitoring, client/host sync) on a **Windows-first, zero-Docker, OSS,
+self-hosted** substrate:
 
 - **One headless host engine** (`apps/host`) owns all stateful, OS-touching work (git
   worktrees, PTYs, process trees, the event log). It runs standalone (CLI/daemon) and is also

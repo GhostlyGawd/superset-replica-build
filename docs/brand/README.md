@@ -14,8 +14,9 @@ is where your swarm of coding agents works: one project, a cultivated stand of i
 worktrees, an agent growing each one. You watch the whole grove from a single console and
 harvest the branches that came good.
 
-It is original, ownable, trivially typeable as a command, and it does not evoke "Superset."
-It also anchors a coherent design point of view (below) instead of being a label bolted on.
+It is original and ownable, trivially typeable as a command, and a name we own outright rather
+than a borrowed one. It also anchors a coherent design point of view (below) instead of being a
+label bolted on.
 
 ## Positioning
 

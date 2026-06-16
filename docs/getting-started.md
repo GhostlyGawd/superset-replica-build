@@ -27,7 +27,7 @@ hints; a missing required tool aborts the bootstrap before anything starts.
 Clone the repository and install dependencies:
 
 ```sh
-git clone https://github.com/GhostlyGawd/superset-replica-build.git grove
+git clone https://github.com/GhostlyGawd/grove.git
 cd grove
 bun install
 ```

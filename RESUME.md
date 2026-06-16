@@ -1,10 +1,10 @@
-# RESUME — fresh-chat handoff (Grove / Superset replica)
+# RESUME — fresh-chat handoff (Grove)
 
 **Read this + `STATE.json` + `DECISIONS.md` + `PARITY.md` + `RUBRIC.md` + latest `evidence/` to re-derive everything. Do NOT rely on chat history.**
 
-- Product: **Grove** — 1:1 cross-platform OSS replica of Superset (parallel CLI-agent orchestration over isolated git worktrees).
-- Repo: `github.com/GhostlyGawd/superset-replica-build` · Linear project "SWARM — Superset Replica" (`a778bfa7-a33c-4069-b217-33169206345d`).
-- Workspace: `D:/GitHub Projects/superset-replica-build`. Toolchain: bun, node 24, gh, rg, caddy (all installed). No Docker (PGlite substitutes — ADR-0003).
+- Product: **Grove** — mission control for a swarm of CLI coding agents; parallel CLI-agent orchestration over isolated git worktrees, cross-platform, self-hosted, OSS.
+- Repo: `github.com/GhostlyGawd/grove` · Linear project "SWARM / Grove" (`a778bfa7-a33c-4069-b217-33169206345d`).
+- Workspace: the repo root (current working directory). Toolchain: bun, node 24, gh, rg, caddy (all installed). No Docker (PGlite substitutes — ADR-0003).
 
 ## Shipped
 - **v0.1.0** Phase 0 (recon + architecture + skeleton; 3-OS CI green).

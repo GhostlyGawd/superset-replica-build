@@ -1,12 +1,12 @@
 # HANDOFF — Grove v1.0.0
 
-**Grove** — _Orchestrate swarms of CLI coding agents in parallel across isolated git
-worktrees._ A 1:1, cross-platform, OSS replica of [Superset](https://github.com/superset-sh/superset)
-(which is macOS-only Electron); Grove runs natively on **Windows 10/11 + macOS + Linux**.
+**Grove** — _Mission control for a swarm of CLI coding agents: calm surface, swarming depth._
+Parallel CLI-agent orchestration over isolated git worktrees — cross-platform, self-hosted, OSS —
+running natively on **Windows 10/11 + macOS + Linux**.
 
 - **Status:** **v1.0.0 — shipped** (2026-06-16). All 14 parity items **P01–P14 ✅**. Green on
   Windows + macOS + Linux (CI run `27626509741`). Independent Phase-6 Critic **ALL-PASS**.
-- **Repo:** `github.com/GhostlyGawd/superset-replica-build` · **Linear:** "SWARM — Superset Replica".
+- **Repo:** `github.com/GhostlyGawd/grove` · **Linear:** "SWARM / Grove" (id in `STATE.json`).
 - **License:** MIT (`LICENSE`). OSS-only, no paid SaaS, no mandatory API keys (`evidence/phase-6/license-audit.md`).
 
 ## Re-derive the whole project from the blackboard (not chat history)

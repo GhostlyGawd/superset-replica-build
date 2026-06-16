@@ -8,13 +8,12 @@ monitoring — from the desktop **or your phone**. It runs natively on **Windows
 Linux**, is fully self-hosted, and is built entirely on open-source software: no paid SaaS, no
 hosted relay, no mandatory API keys, nothing phones home.
 
-Grove is a **1:1, cross-platform, OSS replica of [Superset](https://github.com/superset-sh/superset)**
-(the code editor for the AI-agents era). It keeps the product — parallel CLI agents in isolated
-worktrees, terminal, diff/edit, presets, monitoring, client/host sync — and swaps the substrate
-for a Windows-first, zero-Docker, OSS, self-hosted stack. The name fits the model: a git
-worktree is literally a *tree*; many worktrees branch off one repository and share a single
-`.git` object store — one root system, many trees, a grove. Grove is where a swarm of agents
-works that grove, and you watch the whole stand from one console.
+Grove runs natively on a **Windows-first, zero-Docker, OSS, self-hosted** stack: parallel CLI
+agents in isolated worktrees, a terminal, diff/edit, presets, monitoring, and client/host sync,
+with no paid SaaS and nothing that phones home. The name fits the model: a git worktree is
+literally a *tree*; many worktrees branch off one repository and share a single `.git` object
+store — one root system, many trees, a grove. Grove is where a swarm of agents works that grove,
+and you watch the whole stand from one console.
 
 The 14 parity items (P01–P14) are each verified by evidence and a green Windows + macOS + Linux
 CI run — see [`PARITY.md`](./PARITY.md). Architecture decisions are recorded as ADRs in

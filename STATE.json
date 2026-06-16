@@ -3,15 +3,15 @@
   "project": {
     "codename": "SWARM",
     "final_name": "Grove",
-    "tagline": "Orchestrate swarms of CLI coding agents in parallel across isolated git worktrees.",
-    "replica_of": "https://github.com/superset-sh/superset",
-    "workspace_dir": "D:/GitHub Projects/superset-replica-build",
-    "github_repo": "https://github.com/GhostlyGawd/superset-replica-build",
+    "tagline": "Mission control for a swarm of CLI coding agents: calm surface, swarming depth. Parallel CLI-agent orchestration over isolated git worktrees — cross-platform, self-hosted, OSS.",
+    "_prior_art_internal": "prior-art parallel-agent orchestrator; provenance URL + rationale recorded in DECISIONS.md (ADR-0020) and docs/recon.md",
+    "workspace_dir": ".",
+    "github_repo": "https://github.com/GhostlyGawd/grove",
     "linear_project": {
       "id": "a778bfa7-a33c-4069-b217-33169206345d",
-      "url": "https://linear.app/ghostlygawd/project/swarm-superset-replica-65f1d5fd8da9",
+      "url": "https://linear.app/ghostlygawd/project/swarm-65f1d5fd8da9",
       "team": "Ghostlygawd",
-      "name": "SWARM — Superset Replica"
+      "name": "SWARM / Grove"
     }
   },
   "host_os": "windows",
@@ -59,7 +59,7 @@
   ],
   "blocked": [],
   "resolved_blockers": [
-    "[RESOLVED 2026-06-15] GitHub Actions billing block (ADR-0012): user made the private repo PUBLIC -> free unlimited Actions. Rerun of HEAD 70d9024 went GREEN on all 3 OSes + the e2e job (run 27550630185) -> v0.4.0 cut. (Repo rename to 'Grove' did NOT take; still named superset-replica-build, non-blocking — ADR-0010 already keeps the repo identifier while the product is Grove.)"
+    "[RESOLVED 2026-06-15] GitHub Actions billing block (ADR-0012): user made the private repo PUBLIC -> free unlimited Actions. Rerun of HEAD 70d9024 went GREEN on all 3 OSes + the e2e job (run 27550630185) -> v0.4.0 cut. (The product ships as Grove; ADR-0010 records the name decision and the repo-identifier history.)"
   ],
   "last_updated": "2026-06-16"
 }

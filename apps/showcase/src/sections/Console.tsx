@@ -54,7 +54,7 @@ function DesktopConsole() {
           <header className="flex h-10 items-center justify-between gap-2 border-b border-line px-3">
             <span className="flex items-center gap-2 truncate text-sm font-semibold text-fg">
               <Boxes className="size-4 text-accent-fg" />
-              superset-replica
+              grove
             </span>
             <IconButton aria-label="New workspace" size="sm">
               <Plus />
