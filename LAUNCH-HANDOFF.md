@@ -18,6 +18,17 @@ whole build — see "Laws" below).
 - The page's CI is wired: a **`site` job** (ubuntu render + axe) + the `verify` matrix builds
   `apps/site` 3-OS. The code at `98b44b2` was **3-OS CI green** (run 27639550916, all 9 jobs).
 
+## ✅ LOOP COMPLETE (2026-06-16) — both goals met
+- **Goal 1 ✅** CI GREEN on HEAD `ce71b64` (run `27643073870`, all 9 jobs incl `verify (windows-latest)`
+  + the `site` job). The Windows typecheck flake did NOT recur (the RED `af7fefd` run was superseded
+  by green runs `27641802167` → `27643073870`); no durable cap was needed this time.
+- **Goal 2 ✅** Site LIVE at **https://ghostlygawd.github.io/grove/** (ADR-0022): Vite `base:'/grove/'`,
+  prerender absolutizes `og:image` + writes `.nojekyll`, `.github/workflows/pages.yml` deploys
+  `apps/site/dist` gated on green CI (`workflow_run`) — deploy run `27643295363`. Independently
+  verified on the real URL (200, prerendered copy, all 6 assets 200 under the base, OG card absolute
+  + resolves, live Playwright hydration smoke 0 failures). Proof: `evidence/site/deploy.md` +
+  `deploy-live.png`. Prediction `e5e97c32` scored. The history below is retained for provenance.
+
 ## THE LOOP'S REMAINING GOALS (it is complete only when BOTH are true)
 
 ### Goal 1 — CI is GREEN on HEAD (currently RED — a flake)
