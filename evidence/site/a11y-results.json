@@ -1,0 +1,142 @@
+{
+  "desktop.page": {
+    "violations": [
+      {
+        "id": "page-has-heading-one",
+        "impact": "moderate",
+        "help": "Page should contain a level-one heading",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/page-has-heading-one?application=axeAPI",
+        "count": 1,
+        "targets": ["html"]
+      }
+    ],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "impact": "serious",
+        "help": "Elements must only use permitted ARIA attributes",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/aria-prohibited-attr?application=axeAPI",
+        "count": 1,
+        "targets": ["span[aria-label=\"Swarm clock\"]"]
+      },
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=axeAPI",
+        "count": 5,
+        "targets": [
+          "text[y=\"12\"]",
+          "text[y=\"46\"]",
+          "text[y=\"80\"]",
+          "text[y=\"114\"]",
+          ".flex-col > .text-accent-fg"
+        ]
+      }
+    ],
+    "passCount": 51
+  },
+  "meta": {
+    "axePath": "D:\\GitHub Projects\\superset-replica-build\\node_modules\\.bun\\axe-core@4.12.1\\node_modules\\axe-core\\axe.js",
+    "tags": ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "best-practice"],
+    "generatedAt": "2026-06-16T17:10:27.824Z"
+  },
+  "desktop.palette": {
+    "full": {
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=axeAPI",
+          "count": 1,
+          "targets": [".focus-visible\\:ring-offset-overlay"]
+        }
+      ],
+      "passCount": 28
+    },
+    "scoped": {
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=axeAPI",
+          "count": 1,
+          "targets": [".focus-visible\\:ring-offset-overlay"]
+        }
+      ],
+      "passCount": 24
+    }
+  },
+  "phone.page": {
+    "violations": [
+      {
+        "id": "page-has-heading-one",
+        "impact": "moderate",
+        "help": "Page should contain a level-one heading",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/page-has-heading-one?application=axeAPI",
+        "count": 1,
+        "targets": ["html"]
+      }
+    ],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "impact": "serious",
+        "help": "Elements must only use permitted ARIA attributes",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/aria-prohibited-attr?application=axeAPI",
+        "count": 1,
+        "targets": ["span[aria-label=\"Swarm clock\"]"]
+      },
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=axeAPI",
+        "count": 7,
+        "targets": [
+          "text[y=\"12\"]",
+          "text[y=\"46\"]",
+          "text[y=\"80\"]",
+          "text[y=\"114\"]",
+          "div[aria-label=\"Diff: session.ts\"] > .bg-diff-add-bg.grid-cols-\\[3rem_3rem_1fr\\].grid:nth-child(5) > .whitespace-pre",
+          "div[aria-label=\"Diff: session.ts\"] > .bg-diff-add-bg.grid-cols-\\[3rem_3rem_1fr\\].grid:nth-child(7) > .whitespace-pre"
+        ]
+      }
+    ],
+    "passCount": 52
+  },
+  "phone.palette": {
+    "full": {
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=axeAPI",
+          "count": 1,
+          "targets": [".focus-visible\\:ring-offset-overlay"]
+        }
+      ],
+      "passCount": 28
+    },
+    "scoped": {
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=axeAPI",
+          "count": 1,
+          "targets": [".focus-visible\\:ring-offset-overlay"]
+        }
+      ],
+      "passCount": 24
+    }
+  }
+}

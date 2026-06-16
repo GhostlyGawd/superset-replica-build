@@ -175,6 +175,63 @@ jobs:
           path: apps/mobile/playwright-report
           retention-days: 7
 
+  # Render + a11y gate for the Grove launch site (apps/site, ADR-0021). The site is
+  # a prerendered static page that talks to NOTHING (no host/globalSetup, unlike the
+  # desktop/mobile e2e jobs): the Playwright webServer runs the package build (client
+  # + SSR + prerender stitch) and serves `dist` via `vite preview`. The suite asserts
+  # the cockpit shell + every section's real copy at a desktop AND a Pixel-5 phone
+  # viewport, and runs axe-core over the page + open command palette with a hard gate
+  # of 0 critical / 0 serious. ubuntu only (cheapest; the page is OS-portable); the
+  # `verify` matrix already builds apps/site on all 3 OSes via turbo. Driven via Node
+  # (Playwright + bun is unreliable; see evidence/phase-1).
+  site:
+    name: site (apps/site, ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Setup Node (Playwright driver)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium (+ system deps)
+        working-directory: apps/site
+        run: bunx playwright install --with-deps chromium
+
+      - name: Build the launch site (prerender to static HTML)
+        run: bun run --filter @swarm/site build
+
+      - name: Render + a11y (Playwright vs prerendered dist)
+        working-directory: apps/site
+        run: node ./node_modules/@playwright/test/cli.js test
+
+      - name: Upload site screenshots (render evidence)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grove-site-screenshots
+          path: evidence/site
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-site
+          path: apps/site/playwright-report
+          retention-days: 7
+
   # Validate the W4 electron-builder packaging config COLD on all 3 OSes (ADR-0016).
   # UNLIKE every other job, this one needs the real Electron binary and runs
   # `electron-builder --dir` — the UNPACKED app tree, NO installer, NO GUI launch — so

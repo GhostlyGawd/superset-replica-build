@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { on } from "../lib/bus";
-import { TERMINAL_SESSION } from "../store/fixtures";
-import type { TermLine } from "../store/fixtures";
+import type { TermLine, TermSession } from "../store/fixtures";
 
 const TONE_CLASS: Record<TermLine["tone"], string> = {
   fg: "text-fg",
@@ -15,14 +14,26 @@ const TONE_CLASS: Record<TermLine["tone"], string> = {
 };
 
 /**
- * A recorded terminal session. The poster-frame (every line) is the SSR/default
- * state, so the real output is in the static HTML and on screen at rest. Replay
- * is PULL-ONLY — the ▶ control, or the palette `up` verb — and plays the lines
- * in once, then holds on the final frame. The cursor blink (grove-pulse) is the
- * only ambient motion. Reduced-motion jumps straight to the end state.
+ * A recorded terminal session for ONE agent's shell. The poster-frame (every
+ * line) is the SSR/default state, so the real output is in the static HTML and
+ * on screen at rest. Replay is PULL-ONLY — the ▶ control, or the palette `up`
+ * verb — and plays the lines in once, then holds on the final frame. The cursor
+ * blink (grove-pulse) is the only ambient motion. Reduced-motion jumps straight
+ * to the end state.
+ *
+ * The body is keyed by the active tab in the section, so switching agents
+ * remounts this with that agent's distinct `session` (fresh poster-frame); only
+ * the mounted instance listens for the replay bus event, so palette `up` always
+ * replays the agent you are looking at.
  */
-export function RecordedTerminal({ replayable = true }: { readonly replayable?: boolean }) {
-  const total = TERMINAL_SESSION.length;
+export function RecordedTerminal({
+  session,
+  replayable = true,
+}: {
+  readonly session: TermSession;
+  readonly replayable?: boolean;
+}) {
+  const total = session.lines.length;
   const [shown, setShown] = useState(total);
   const timers = useRef<number[]>([]);
 
@@ -61,7 +72,7 @@ export function RecordedTerminal({ replayable = true }: { readonly replayable?: 
     };
   }, [replayable]);
 
-  const lines = TERMINAL_SESSION.slice(0, shown);
+  const lines = session.lines.slice(0, shown);
 
   return (
     <div className="flex flex-col">

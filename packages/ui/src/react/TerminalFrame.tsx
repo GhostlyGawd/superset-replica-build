@@ -148,7 +148,14 @@ export function TerminalFrame({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto bg-inset p-3 font-mono text-xs leading-relaxed text-fg">
+      {/* Keyboard-focusable scroll region so the terminal body can be scrolled
+          without a pointer (axe scrollable-region-focusable). */}
+      <div
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable so it can be scrolled by keyboard
+        tabIndex={0}
+        aria-label="Terminal output"
+        className="min-h-0 flex-1 overflow-auto bg-inset p-3 font-mono text-xs leading-relaxed text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+      >
         {children}
       </div>
 

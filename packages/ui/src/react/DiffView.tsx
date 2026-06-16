@@ -90,7 +90,15 @@ export function DiffView({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto bg-inset font-mono text-xs leading-relaxed">
+      {/* The diff body can overflow on narrow viewports; make it keyboard-
+          focusable so it can be scrolled without a pointer (axe
+          scrollable-region-focusable). */}
+      <div
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable so it can be scrolled by keyboard
+        tabIndex={0}
+        aria-label={`Diff: ${fileName}`}
+        className="min-h-0 flex-1 overflow-auto bg-inset font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+      >
         {lines.map((line, index) => {
           if (line.type === "hunk") {
             return (
@@ -154,7 +162,14 @@ export function CodeBlock({ code, title, className }: CodeBlockProps) {
           {copied ? <Check className="text-success-fg" /> : <Copy />}
         </IconButton>
       </div>
-      <pre className="overflow-auto bg-inset p-3 font-mono text-xs leading-relaxed text-fg">
+      {/* Keyboard-focusable scroll region so long snippets are scrollable
+          without a pointer on narrow viewports (axe scrollable-region-focusable). */}
+      <pre
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable so it can be scrolled by keyboard
+        tabIndex={0}
+        aria-label={title ? `Code: ${title}` : "Code snippet"}
+        className="overflow-auto bg-inset p-3 font-mono text-xs leading-relaxed text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+      >
         <code>{code}</code>
       </pre>
     </div>

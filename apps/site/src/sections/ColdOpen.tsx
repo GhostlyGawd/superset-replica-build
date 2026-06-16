@@ -92,7 +92,15 @@ export function ColdOpen() {
             </Select>
           </span>
         </div>
-        <div className="overflow-x-auto">
+        {/* Keyboard-focusable scroll region: the dense roster can overflow on a
+            phone, so it must be scrollable without a pointer (axe
+            scrollable-region-focusable). */}
+        <div
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable so it can be scrolled by keyboard
+          tabIndex={0}
+          aria-label="Agent roster, scrollable"
+          className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+        >
           <Table>
             <TableHead>
               <TableRow className="hover:bg-transparent">

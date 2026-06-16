@@ -282,14 +282,84 @@ export interface TermLine {
   readonly text: string;
 }
 
-export const TERMINAL_SESSION: readonly TermLine[] = [
-  { tone: "subtle", text: "grove › auth-flow · pwsh 7.4 · .grove/wt/auth-flow" },
-  { tone: "muted", text: "$ bun test auth/" },
-  { tone: "fg", text: "bun test v1.3.14" },
-  { tone: "success", text: "  ok  auth/login.test.ts        8 pass   142ms" },
-  { tone: "success", text: "  ok  auth/session.test.ts      5 pass    61ms" },
-  { tone: "error", text: "  fail  auth/refresh.test.ts     1 fail" },
-  { tone: "subtle", text: "      expected 200 — received 401 (token expired)" },
-  { tone: "fg", text: "  13 pass · 1 fail · 19 expect() calls" },
-  { tone: "attention", text: "› agent paused — waiting on your input to continue" },
-];
+export interface TermSession {
+  /** The shell descriptor shown in the frame footer. */
+  readonly shell: string;
+  /** The worktree this shell is pinned to (frame footer cwd). */
+  readonly cwd: string;
+  /** Geometry shown in the footer — tabular, reserved so it never shifts. */
+  readonly cols: number;
+  readonly rows: number;
+  /** The recorded lines, replayed pull-only and held on the final frame. */
+  readonly lines: readonly TermLine[];
+}
+
+/**
+ * Each terminal tab is its OWN recorded session from a DIFFERENT agent — switching
+ * tabs shows that agent's real `grove`/build output, not one shared body. Keyed by
+ * the roster id so the tab strip, the footer (shell · cwd · geometry) and the body
+ * all stay consistent. Three agents, three distinct outcomes: a paused test run
+ * (Claude Code), a green PTY backpressure run (Claude Code), a port-scan that
+ * surfaced a conflict (Codex). Nothing autoplays — replay is pull-only, per tab.
+ */
+const AUTH_FLOW_SESSION: TermSession = {
+  shell: "pwsh 7.4",
+  cwd: ".grove/wt/auth-flow",
+  cols: 120,
+  rows: 32,
+  lines: [
+    { tone: "subtle", text: "grove › auth-flow · pwsh 7.4 · .grove/wt/auth-flow" },
+    { tone: "muted", text: "$ bun test auth/" },
+    { tone: "fg", text: "bun test v1.3.14" },
+    { tone: "success", text: "  ok  auth/login.test.ts        8 pass   142ms" },
+    { tone: "success", text: "  ok  auth/session.test.ts      5 pass    61ms" },
+    { tone: "error", text: "  fail  auth/refresh.test.ts     1 fail" },
+    { tone: "subtle", text: "      expected 200 — received 401 (token expired)" },
+    { tone: "fg", text: "  13 pass · 1 fail · 19 expect() calls" },
+    { tone: "attention", text: "› agent paused — waiting on your input to continue" },
+  ],
+};
+
+export const TERMINAL_SESSIONS: Readonly<Record<string, TermSession>> = {
+  "auth-flow": AUTH_FLOW_SESSION,
+  "pty-backpressure": {
+    shell: "bash 5.2",
+    cwd: ".grove/wt/pty-backpressure",
+    cols: 120,
+    rows: 32,
+    lines: [
+      { tone: "subtle", text: "grove › pty-backpressure · bash 5.2 · .grove/wt/pty-backpressure" },
+      { tone: "muted", text: "$ bun test pty/" },
+      { tone: "fg", text: "bun test v1.3.14" },
+      { tone: "success", text: "  ok  pty/spawn.test.ts          6 pass    88ms" },
+      { tone: "success", text: "  ok  pty/backpressure.test.ts   11 pass   213ms" },
+      { tone: "success", text: "  ok  pty/resize.test.ts          4 pass    37ms" },
+      { tone: "fg", text: "  21 pass · 0 fail · 34 expect() calls" },
+      { tone: "muted", text: "$ grove status pty-backpressure" },
+      { tone: "running", text: "› streaming 4.2 MB/s · ring buffer 12% · no dropped frames" },
+    ],
+  },
+  ports: {
+    shell: "pwsh 7.4",
+    cwd: ".grove/wt/port-scanner",
+    cols: 120,
+    rows: 32,
+    lines: [
+      { tone: "subtle", text: "grove › port-scanner · pwsh 7.4 · .grove/wt/port-scanner" },
+      { tone: "muted", text: "$ cargo run -- scan --loopback" },
+      { tone: "fg", text: "   Compiling port-scanner v0.3.1" },
+      { tone: "fg", text: "    Finished dev [unoptimized] in 2.41s" },
+      { tone: "fg", text: "     Running `target/debug/port-scanner scan --loopback`" },
+      { tone: "success", text: "  open   127.0.0.1:7433  grove-host (bearer)" },
+      { tone: "success", text: "  open   127.0.0.1:5432  embedded-postgres (pglite)" },
+      { tone: "attention", text: "  busy   127.0.0.1:9229  inspector already bound" },
+      { tone: "attention", text: "› agent needs review — port 9229 conflicts with the debugger" },
+    ],
+  },
+};
+
+/** The default poster-frame session id (SSR'd; first tab is open at rest). */
+export const DEFAULT_TERMINAL_TAB = "auth-flow";
+
+/** The default session itself — a concrete value, so callers never index-fall-through. */
+export const DEFAULT_TERMINAL_SESSION: TermSession = AUTH_FLOW_SESSION;

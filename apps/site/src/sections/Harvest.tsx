@@ -155,7 +155,12 @@ function SplitDiff() {
   const right = HARVEST_DIFF.lines.filter((l) => l.type === "context" || l.type === "add");
 
   const column = (lines: typeof HARVEST_DIFF.lines, side: "old" | "new") => (
-    <div className="min-w-0 flex-1 overflow-auto bg-inset font-mono text-xs leading-relaxed">
+    <div
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable so it can be scrolled by keyboard
+      tabIndex={0}
+      aria-label={side === "old" ? "Diff, old file" : "Diff, new file"}
+      className="min-w-0 flex-1 overflow-auto bg-inset font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+    >
       {lines.map((line, i) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: static, ordered diff snapshot
