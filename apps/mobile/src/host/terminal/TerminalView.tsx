@@ -237,6 +237,8 @@ export function TerminalView({ host, workspaceId }: TerminalViewProps) {
         shell={defaultShell}
         cwd={shellInfo.value.cwd}
         connected={activeStatus === "live"}
+        showFind={false}
+        showSplit={false}
         onNewTab={newSession}
         onClear={clearActive}
       >

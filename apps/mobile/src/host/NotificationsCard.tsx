@@ -166,7 +166,7 @@ export function NotificationsCard({ client }: NotificationsCardProps) {
       )}
 
       <div className="mt-1 flex flex-col gap-2 border-line border-t pt-3">
-        <span className="text-2xs font-semibold uppercase tracking-wide text-fg-muted">Inbox</span>
+        <span className="text-2xs font-semibold uppercase tracking-wide text-fg-subtle">Inbox</span>
         {loadingList ? (
           <div className="flex justify-center py-3">
             <Spinner size="sm" />

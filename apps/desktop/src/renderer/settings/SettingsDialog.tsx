@@ -209,7 +209,7 @@ export function SettingsDialog({ open, onOpenChange, controller }: SettingsDialo
         <div className="flex flex-col gap-4" data-testid="settings-shortcuts">
           {(["shell", "terminal"] as const).map((scope) => (
             <section key={scope} className="flex flex-col gap-1.5">
-              <h3 className="text-2xs font-semibold uppercase tracking-wide text-fg-muted">
+              <h3 className="text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
                 {SCOPE_LABEL[scope]}
               </h3>
               <div className="flex flex-col gap-1.5">{actionsForScope(scope).map(renderRow)}</div>

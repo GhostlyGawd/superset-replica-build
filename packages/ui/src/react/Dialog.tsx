@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useId, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { cn } from "../cn";
 import { IconButton } from "./IconButton";
 
@@ -46,7 +46,11 @@ export function Dialog({
   const titleId = useId();
   const descId = useId();
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so showModal()/close() runs synchronously before
+  // paint — the native dialog enters/leaves the top layer in the same frame as the
+  // `flex`/`hidden` class flips below, killing the one-frame open-flash. Client-only
+  // app (Electron renderer + Vite SPA), so there is no SSR useLayoutEffect warning.
+  useLayoutEffect(() => {
     const node = ref.current;
     if (!node) {
       return;
@@ -67,7 +71,12 @@ export function Dialog({
       aria-describedby={description ? descId : undefined}
       onClose={() => onOpenChange(false)}
       className={cn(
-        "flex max-h-[calc(100dvh-2rem)] flex-col border border-line-strong bg-overlay text-fg shadow-lg",
+        // A closed <dialog> must stay display:none (the UA default) so an always-mounted,
+        // closed Dialog/Sheet does not paint full-bleed and steal input. Emitting `flex`
+        // unconditionally overrode that; gate it on `open` so closed → `hidden`
+        // (display:none) wins and open → `flex` lays out the column.
+        open ? "flex" : "hidden",
+        "max-h-[calc(100dvh-2rem)] flex-col border border-line-strong bg-overlay text-fg shadow-lg",
         variant === "sheet" && "max-h-none",
         shape,
         className,

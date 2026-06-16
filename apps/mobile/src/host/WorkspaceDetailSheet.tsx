@@ -27,7 +27,7 @@ interface WorkspaceDetailSheetProps {
 
 function SectionLabel({ children }: { readonly children: string }) {
   return (
-    <h3 className="px-0.5 text-2xs font-semibold uppercase tracking-wide text-fg-muted">
+    <h3 className="px-0.5 text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
       {children}
     </h3>
   );

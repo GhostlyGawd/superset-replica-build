@@ -5,7 +5,7 @@ import { MOBILE_VERSION } from "../version.ts";
 
 function SectionLabel({ children }: { readonly children: string }) {
   return (
-    <h3 className="px-1 text-2xs font-semibold uppercase tracking-wide text-fg-muted">
+    <h3 className="px-1 text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
       {children}
     </h3>
   );

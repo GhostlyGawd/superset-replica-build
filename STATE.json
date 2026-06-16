@@ -23,8 +23,7 @@
     "3_desktop_client": "done (v0.4.0; CI run 27550630185 GREEN 3 OSes [verify matrix] + e2e (desktop) job; independent Critic ALL-PASS incl §6.3; axe a11y 0 critical/serious; perf budgets recorded; P05/P06/P08/P09 = Done. Billing unblocked by making repo public — ADR-0012.)",
     "4_mobile_client": "done (v0.5.0; CI run 27567194903 GREEN 3 OSes [verify] + e2e (desktop) + e2e (mobile); independent Phase-4 Critic ALL-PASS incl §6.3; axe a11y 0 critical/serious; phone perf budgets PASS; P12 done. PWA pairing [QR single-use code -> bearer in IndexedDB], read journeys, touch terminal+dispatch, offline SW + Web Push/VAPID. On-device push lights up at the Phase-5 secure origin.)",
     "5_platform_setup": "done (v0.6.0; CI run 27579893046 GREEN — verify x3 + e2e desktop+mobile + new package x3 [electron-builder --dir cold on all 3 OS]; independent Phase-5 Critic ALL-PASS. grove up/start/stop/status lifecycle (P13); cloudflared remote tunnel-URL pairing -> on-device SW+push (Caddy-TLS secure-context proof); electron-builder NSIS/dmg/AppImage; real 97.6MB NSIS installer + packaged GUI launch evidence (P14). Linear P13/P14 Done.)",
-    "6_hardening_launch": "in_progress",
-    "6_hardening_launch": "not_started"
+    "6_hardening_launch": "in_progress (launch-hardening: a11y source fixes in @swarm/ui + license-audit + cross-platform perf re-measure + security review + docs + HANDOFF -> v1.0.0; opened 2026-06-16, ADR-0018)"
   },
   "version": "0.6.0",
   "next_release_target": "1.0.0",
@@ -50,9 +49,11 @@
     "tunnel": "cloudflared / localtunnel (OSS) — Phase 5"
   },
   "next_actions": [
-    "[ACTIVE — Phase 5] Platform & self/remote setup (P13) -> v0.6.0: (a) one-command cross-platform bootstrap (Win/mac/Linux; install deps, init host, write manifest, start daemon) authored in TS (no .sh on user paths, ADR-0004); (b) desktop installers via electron-builder — NSIS (Windows) / dmg+zip (macOS) / AppImage+deb (Linux); CI builds/typechecks the packaging config (ELECTRON_SKIP_BINARY_DOWNLOAD; actual GUI launch + installer smoke verified locally, not in CI); (c) the phone-only REMOTE path: cloudflared/localtunnel + Caddy internal TLS so the PWA reaches the host over HTTPS from anywhere -> on-device SW install + Web Push light up (closes the ADR-0014 dec-4 deferral); (d) QR pairing over the tunnel URL. Independent Phase-5 Critic + evidence (installer artifacts, a remote-pairing trace) -> v0.6.0 + Linear P13 Done.",
-    "[Phase 6 / launch sign-off] license-audit report (whole-product, ADR-0008) + CROSS-PLATFORM perf re-measure (the Phase-3 desktop perf-report.md terminal-stream p95 tail is interactive-Windows-PowerShell variance; transport floor is within budget — re-measure on Linux/macOS CI) + comprehensive a11y sweep, under evidence/; required before v1.0.0",
-    "[harness retro follow-up] route the CI-gate lessons (turbo-cache false-green -> --force; GH-windows ConPTY discipline -> direct PTY spawn+onExit / process.execPath / child_process for batch / worker process.exit / bounded fs.rm; fresh independent Critics catch fakes) into recursive-harness artifacts via /harness-pr"
+    "[ACTIVE — Phase 6 / launch-hardening, ADR-0018] Wave 1: a11y SOURCE fixes in @swarm/ui — (a) lighten dark `fgSubtle` so text-fg-subtle holds AA 4.5 on raised+overlay (verified failing today: #828d88 on overlay #212826 = 4.38:1) and extend packages/ui/src/tokens.test.ts to assert fg-subtle on raised+overlay both themes; mirror the hex in tokens.css; (b) Dialog/Sheet must be display:none when not [open] at the source (emit `flex` only while open) so the closed-overlay full-bleed quirk dies — removes the per-consumer conditional-mount workaround; (c) TerminalFrame prop to hide the inert mobile Find/Split buttons. Re-run axe desktop+mobile -> evidence/phase-6/a11y-report.md.",
+    "[Phase 6] Wave 2 evidence: license-audit (whole-product, ADR-0008) -> evidence/phase-6/license-audit.md (OSS-only proof); CROSS-PLATFORM perf re-measure (Phase-3 terminal-stream p95 tail was interactive-Windows-PowerShell variance; re-measure on Linux/macOS, CI-measured numbers preferred) -> evidence/phase-6/perf-report.md with speed budgets met; security review -> evidence/phase-6/security-review.md.",
+    "[Phase 6] Wave 3 docs: README + getting-started (incl the phone-only path) + docs/demo.md; then HANDOFF.md.",
+    "[Phase 6] Gate + sign-off: clean-install cold gate -> push -> confirm 3-OS CI green (verify x3 + e2e desktop + e2e mobile + package x3) -> evidence/phase-6/ci-green.md; independent Phase-6 Critic (did NOT build) writes evidence/phase-6/review.md per §6.1/§6.3/§6.4; on ALL-PASS cut v1.0.0 (the FINAL release) + write HANDOFF.md.",
+    "[harness retro follow-up, at a clean boundary] route the CI-gate lessons (turbo-cache false-green -> --force; --force != CI -> clean-install gate; gate the test step at DEFAULT-or-capped concurrency not --concurrency=1; billing-misdiagnosis rule; re-gate AFTER adding evidence/QA specs) into recursive-harness artifacts via /retro -> /harness-pr"
   ],
   "critic_followups_for_phase2": [
     "[DONE wave-1] @swarm/api completed to all 13 routers of architecture §3.1; SwarmConfig now Command[] arrays + per-OS shells + per-field overlay (9 tests)",
@@ -62,5 +63,5 @@
   "resolved_blockers": [
     "[RESOLVED 2026-06-15] GitHub Actions billing block (ADR-0012): user made the private repo PUBLIC -> free unlimited Actions. Rerun of HEAD 70d9024 went GREEN on all 3 OSes + the e2e job (run 27550630185) -> v0.4.0 cut. (Repo rename to 'Grove' did NOT take; still named superset-replica-build, non-blocking — ADR-0010 already keeps the repo identifier while the product is Grove.)"
   ],
-  "last_updated": "2026-06-15"
+  "last_updated": "2026-06-16"
 }

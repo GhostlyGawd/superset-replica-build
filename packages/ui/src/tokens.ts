@@ -75,7 +75,7 @@ export const darkColors: ThemeColors = {
 
   fg: "#e8edea",
   fgMuted: "#aab4af",
-  fgSubtle: "#828d88",
+  fgSubtle: "#8b958f",
   fgOnAccent: "#06120a",
 
   accent: "#3fb950",
@@ -161,6 +161,10 @@ function claimsFor(theme: ThemeName, c: ThemeColors): readonly ContrastClaim[] {
     { theme, label: "fg-muted on surface", fg: c.fgMuted, bg: c.surfaceBg, min: 4.5 },
     { theme, label: "fg-muted on raised", fg: c.fgMuted, bg: c.raisedBg, min: 4.5 },
     { theme, label: "fg-subtle on surface", fg: c.fgSubtle, bg: c.surfaceBg, min: 4.5 },
+    // fg-subtle also styles meta/hint text on raised (cards/inputs/rows) and overlay
+    // (dialogs/sheets/popovers/toasts) surfaces — both must clear AA, not just surface.
+    { theme, label: "fg-subtle on raised", fg: c.fgSubtle, bg: c.raisedBg, min: 4.5 },
+    { theme, label: "fg-subtle on overlay", fg: c.fgSubtle, bg: c.overlayBg, min: 4.5 },
     { theme, label: "accent-fg (link) on surface", fg: c.accentFg, bg: c.surfaceBg, min: 4.5 },
     { theme, label: "fg-on-accent on accent fill", fg: c.fgOnAccent, bg: c.accent, min: 4.5 },
     { theme, label: "running-fg on surface", fg: c.runningFg, bg: c.surfaceBg, min: 4.5 },

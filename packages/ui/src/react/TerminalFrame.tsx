@@ -21,6 +21,17 @@ export interface TerminalFrameProps {
   readonly cols?: number;
   readonly rows?: number;
   readonly connected?: boolean;
+  /**
+   * Show the Find-in-terminal toolbar button. Default `true` (desktop + showcase).
+   * The phone terminal has no find, so it passes `false` to drop the inert button.
+   */
+  readonly showFind?: boolean;
+  /**
+   * Show the split-pane toolbar buttons (split right, and split down when its
+   * handler is given). Default `true` (desktop + showcase). The phone terminal is
+   * a single pane with no splits, so it passes `false` to drop the inert buttons.
+   */
+  readonly showSplit?: boolean;
   /** Toolbar handlers — when omitted the buttons stay decorative (showcase). */
   readonly onNewTab?: () => void;
   readonly onClear?: () => void;
@@ -49,6 +60,8 @@ export function TerminalFrame({
   cols = 120,
   rows = 32,
   connected = true,
+  showFind = true,
+  showSplit = true,
   onNewTab,
   onClear,
   onFind,
@@ -101,22 +114,26 @@ export function TerminalFrame({
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {actions}
-          <Tooltip label="Find (Ctrl+Shift+F)">
-            <IconButton aria-label="Find in terminal" size="sm" onClick={onFind}>
-              <Search />
-            </IconButton>
-          </Tooltip>
+          {showFind ? (
+            <Tooltip label="Find (Ctrl+Shift+F)">
+              <IconButton aria-label="Find in terminal" size="sm" onClick={onFind}>
+                <Search />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           <Tooltip label="Clear (Ctrl+Shift+K)">
             <IconButton aria-label="Clear terminal" size="sm" onClick={onClear}>
               <Eraser />
             </IconButton>
           </Tooltip>
-          <Tooltip label="Split right (Ctrl+Shift+D)">
-            <IconButton aria-label="Split terminal right" size="sm" onClick={onSplitRight}>
-              <SplitSquareHorizontal />
-            </IconButton>
-          </Tooltip>
-          {onSplitDown ? (
+          {showSplit ? (
+            <Tooltip label="Split right (Ctrl+Shift+D)">
+              <IconButton aria-label="Split terminal right" size="sm" onClick={onSplitRight}>
+                <SplitSquareHorizontal />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          {showSplit && onSplitDown ? (
             <Tooltip label="Split down (Ctrl+Shift+Alt+D)">
               <IconButton aria-label="Split terminal down" size="sm" onClick={onSplitDown}>
                 <SplitSquareVertical />
