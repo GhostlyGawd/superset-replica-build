@@ -34,6 +34,8 @@ release/
 playwright-report/
 test-results/
 .playwright/
+# perf-measurement output (written by apps/desktop/e2e/_perf.spec.ts; CI uploads it as an artifact)
+grove-perf-results.json
 
 # evidence raw captures kept, but ignore large traces by default (committed selectively)
 evidence/**/*.zip

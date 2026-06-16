@@ -6,6 +6,9 @@
   "main": "./src/index.ts",
   "module": "./src/index.ts",
   "types": "./src/index.ts",
+  "bin": {
+    "grove": "./src/index.ts"
+  },
   "exports": {
     ".": {
       "types": "./src/index.ts",

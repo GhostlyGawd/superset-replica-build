@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type Page, expect, test } from "@playwright/test";
 import { CONN_FILE } from "./host-fixture.ts";
 
@@ -34,6 +35,13 @@ type Probe =
   | { readonly kind: "streamContains"; readonly marker: string };
 
 const RESULTS_FILE = join(tmpdir(), "grove-perf-results.json");
+// A second, repo-relative copy of the results so CI can upload it as an artifact
+// (the OS temp dir isn't a stable upload path). Lives next to this app, gitignored.
+const UPLOAD_RESULTS_FILE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "grove-perf-results.json",
+);
 const SELECTED = '[data-testid="workspace-rail"] [aria-current="true"]';
 const STREAM = '[data-testid="terminal-stream"]';
 
@@ -140,6 +148,43 @@ function selectedText(page: Page): Promise<string> {
 
 test.beforeAll(() => {
   writeFileSync(RESULTS_FILE, "{}", "utf8");
+});
+
+// Report-only: after every metric is recorded, print a single grep-able summary
+// line (per-metric n/p50/p95/min/max) to stdout so the numbers land in the CI log,
+// and copy the JSON to a stable repo-relative path for artifact upload. This adds
+// NO budget assertions — PASS/OVER vs the §6.4 budgets stays an honest human read
+// of the recorded numbers in evidence/phase-6/perf-report.md.
+test.afterAll(() => {
+  let store: Record<string, { n: number; p50: number; p95: number; min: number; max: number }> = {};
+  try {
+    store = JSON.parse(readFileSync(RESULTS_FILE, "utf8"));
+  } catch {
+    store = {};
+  }
+  const summary: Record<string, { n: number; p50: number; p95: number; min: number; max: number }> =
+    {};
+  for (const [key, value] of Object.entries(store)) {
+    if (key === "meta" || value == null || typeof value !== "object") {
+      continue;
+    }
+    const { n, p50, p95, min, max } = value;
+    summary[key] = { n, p50, p95, min, max };
+  }
+  // Single-line, machine-grep-able marker (e.g. `rg '^PERF_RESULTS '` in the CI log).
+  console.log(`PERF_RESULTS ${JSON.stringify({ platform: process.platform, metrics: summary })}`);
+  // Human-friendly per-metric breakdown, also in the log.
+  for (const [key, m] of Object.entries(summary)) {
+    console.log(
+      `PERF_METRIC ${key}: n=${m.n} p50=${m.p50}ms p95=${m.p95}ms (min=${m.min} max=${m.max})`,
+    );
+  }
+  try {
+    copyFileSync(RESULTS_FILE, UPLOAD_RESULTS_FILE);
+    console.log(`PERF_RESULTS_FILE ${UPLOAD_RESULTS_FILE}`);
+  } catch (err) {
+    console.log(`PERF_RESULTS_FILE copy failed: ${(err as Error).message}`);
+  }
 });
 
 test.describe.configure({ mode: "serial" });

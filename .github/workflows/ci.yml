@@ -96,6 +96,34 @@ jobs:
         working-directory: apps/desktop
         run: node ./node_modules/@playwright/test/cli.js test
 
+      # Cross-platform perf re-measure (§6.4, ADR-0019): run the EXISTING report-only
+      # perf harness on Linux against the same real seeded host (reusing the chromium
+      # installed above). Linux's bash has far lighter per-command cost than interactive
+      # Windows PowerShell, so this is the cross-platform datapoint that retires the
+      # Phase-3 Windows terminal-stream p95 tail. The spec makes NO budget asserts — it
+      # prints `PERF_RESULTS {json}` to the log and writes grove-perf-results.json; it
+      # never gates the build red on slow numbers.
+      - name: Desktop perf re-measure (report-only, Linux numbers)
+        if: always()
+        # Report-only (ADR-0019): the perf harness makes no budget asserts and must
+        # NEVER turn the build red on slow numbers (or a slow-host measurement timeout).
+        # continue-on-error keeps the step's result visible + the log/artifact intact
+        # while guaranteeing it can't fail the job.
+        continue-on-error: true
+        working-directory: apps/desktop
+        env:
+          GROVE_E2E_MEASURE: "1"
+        run: node ./node_modules/@playwright/test/cli.js test _perf.spec.ts --reporter=line
+
+      - name: Upload perf results (Linux §6.4 numbers)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grove-perf-results-linux
+          path: apps/desktop/grove-perf-results.json
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4
