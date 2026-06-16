@@ -2,6 +2,8 @@
 
 **Mission control for a swarm of coding agents — calm surface, swarming depth.**
 
+**Live site → [ghostlygawd.github.io/grove](https://ghostlygawd.github.io/grove/)** — the cockpit, as a page you can drive.
+
 Grove orchestrates many CLI coding agents in parallel, each pinned to its own isolated git
 worktree, with a built-in terminal, a diff viewer/inline-editor, and real-time multi-agent
 monitoring — from the desktop **or your phone**. It runs natively on **Windows, macOS, and
@@ -139,6 +141,8 @@ Full setup, the phone-only remote path, and every core workflow are in
 
 ## Documentation
 
+- [**Live site**](https://ghostlygawd.github.io/grove/) — the launch page (the Grove cockpit, as
+  an interactive landing page) at `https://ghostlygawd.github.io/grove/`.
 - [`docs/getting-started.md`](./docs/getting-started.md) — zero-to-running, cross-platform,
   including the phone-only remote path.
 - [`docs/demo.md`](./docs/demo.md) — a guided end-to-end walkthrough exercising every parity item
