@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 4319;
+// The build stamps assets under this base (ADR-0022); `vite preview` therefore
+// serves the app at `http://localhost:PORT/grove/`, so the suite drives the EXACT
+// deployed structure (asset 404s under the subpath would fail here, not just live).
+const BASE = process.env.SITE_BASE ?? "/grove/";
 
 /**
  * Render + a11y harness for the Grove launch site (ADR-0021). The site is a
@@ -23,7 +27,7 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
   timeout: 30_000,
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: `http://localhost:${PORT}${BASE}`,
     trace: "retain-on-failure",
   },
   projects: [

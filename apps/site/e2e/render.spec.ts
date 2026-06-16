@@ -16,7 +16,7 @@ const isPhone = (projectName: string) => projectName === "phone";
 
 test.describe("Grove launch site renders", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
   });
 
   test("persistent cockpit shell chrome", async ({ page }, testInfo) => {

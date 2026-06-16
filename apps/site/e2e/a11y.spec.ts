@@ -229,7 +229,7 @@ function expectNoSeriousOrCritical(view: AxeView, label: string): void {
 
 test.describe("Grove launch site — axe accessibility (0 critical/serious)", () => {
   test("page at rest", async ({ page }, testInfo) => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(
       page.getByRole("heading", { name: "Run a swarm of coding agents. Keep one calm surface." }),
     ).toBeVisible();
@@ -240,7 +240,7 @@ test.describe("Grove launch site — axe accessibility (0 critical/serious)", ()
   });
 
   test("command palette open", async ({ page }, testInfo) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.getByRole("button", { name: "Open command palette" }).click();
     await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
     // Audit the whole document with the dialog open (so the trap + overlay count),

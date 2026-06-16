@@ -1,0 +1,91 @@
+name: Deploy site (GitHub Pages)
+
+# Host the Grove launch site (apps/site, ADR-0021/0022) on GitHub Pages at the
+# project subpath https://ghostlygawd.github.io/grove/. Kept SEPARATE from ci.yml:
+# CI is the correctness gate (3-OS verify + e2e + the `site` render/a11y job); this
+# workflow only ships the already-verified static build.
+#
+# Trigger model: deploy ONLY after CI is green on main (workflow_run gate) so a red
+# build never reaches the live URL, plus a manual dispatch for the first enablement
+# / re-deploys.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# GITHUB_TOKEN scopes the Pages deployment needs (id-token for the OIDC the
+# deploy-pages action uses to prove provenance of the artifact).
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One in-flight Pages deploy at a time; never cancel a running deploy mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# Electron is a desktop devDependency pulled by the monorepo install; the site
+# build never touches it, so skip the binary download (mirrors ci.yml).
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+jobs:
+  build:
+    # On the workflow_run trigger, proceed only when CI actually passed; a manual
+    # dispatch always builds.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (the exact commit CI verified)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Emits apps/site/dist: hydratable client bundle + SSR render + prerender
+      # stitch, every asset stamped under base /grove/, absolute og:image, .nojekyll.
+      - name: Build the launch site (prerender to static HTML, base /grove/)
+        run: bun run --filter @swarm/site build
+
+      # Defense-in-depth: fail the deploy if the build is NOT base-correct, so a
+      # base regression can never silently ship a 404-ing live page.
+      - name: Verify the build is base-correct (assets under /grove/, absolute og, .nojekyll)
+        run: |
+          set -e
+          html=apps/site/dist/index.html
+          test -f apps/site/dist/.nojekyll || { echo "missing .nojekyll"; exit 1; }
+          grep -q '/grove/assets/' "$html" || { echo "JS/CSS not under /grove/"; exit 1; }
+          grep -q 'href="/grove/fonts/' "$html" || { echo "fonts not under /grove/"; exit 1; }
+          grep -q 'content="https://ghostlygawd.github.io/grove/og-cockpit.png"' "$html" || { echo "og:image not absolute"; exit 1; }
+          echo "dist is base-correct"
+
+      - name: Upload the static site as a Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

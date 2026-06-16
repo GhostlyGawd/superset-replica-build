@@ -14,7 +14,7 @@ const EVIDENCE_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../evi
 const shot = (name: string) => join(EVIDENCE_DIR, `${name}.png`);
 
 async function settle(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await expect(
     page.getByRole("heading", { name: "Run a swarm of coding agents. Keep one calm surface." }),
   ).toBeVisible();

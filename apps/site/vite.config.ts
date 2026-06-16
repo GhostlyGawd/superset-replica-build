@@ -8,7 +8,15 @@ import { defineConfig } from "vite";
 // Node-runnable render, and `scripts/prerender.mjs` stitches the real section
 // copy into `dist/index.html`. No SSR framework dependency — the proven Vite +
 // `@swarm/ui` toolchain only.
+//
+// Deploy base (ADR-0022): GitHub Pages serves a project site under a `/grove/`
+// subpath, so every asset must resolve under that base or it 404s. `base` is
+// env-configurable (`SITE_BASE`) so a later custom domain (base `/`) is a
+// one-line change. Trailing slash required by Vite.
+const BASE = process.env.SITE_BASE ?? "/grove/";
+
 export default defineConfig({
+  base: BASE,
   plugins: [react()],
   css: {
     postcss: {
