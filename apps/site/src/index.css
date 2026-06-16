@@ -1,0 +1,121 @@
+@import "@swarm/ui/tokens.css";
+@import "@swarm/ui/styles.css";
+
+/*
+ * Fonts are served from a stable /fonts path (the woff2 are vendored into
+ * public/fonts) so the <link rel="preload"> in index.html can name the exact
+ * file — preloading hashed Fontsource emits is unreliable. IBM Plex Sans (UI) +
+ * Mono (figures/terminal/diff). `swap` keeps first paint un-gated; the preload
+ * removes the swap flash for the critical weights.
+ */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Site-local helpers — all motion is pull-only and reduced-motion-safe.
+ * grove-reveal: a section reveal that runs ONCE when the visitor scrolls a
+ * demo into view via the down-chevron (a PULL — it is applied imperatively,
+ * never on load). grove-cell: the swarm-dial cell ease-in, gated behind a
+ * class the dial only adds after the first user move.
+ */
+@keyframes grove-cell-in {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.grove-cell-in {
+  animation: grove-cell-in var(--duration-instant) var(--ease-standard) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grove-cell-in {
+    animation: none !important;
+  }
+}
+
+/*
+ * content-visibility on the dial grid keeps geometry/cadence steady at N=100+:
+ * offscreen cells are not laid out, so adding agents never reflows the page.
+ */
+.grove-grid-contain {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 0px;
+}
+
+/*
+ * The swarm-dial range thumb, styled to the brand accent (square-ish, hairline)
+ * so the one interactive control of the signature section is on-token. No glow,
+ * no shadow — a 1px outline focus ring is supplied by Tailwind on the element.
+ */
+.grove-dial-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-accent);
+  border: 1px solid var(--color-accent-border);
+  cursor: pointer;
+}
+
+.grove-dial-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-accent);
+  border: 1px solid var(--color-accent-border);
+  cursor: pointer;
+}
+
+.grove-dial-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+.grove-dial-range::-moz-range-track {
+  height: 6px;
+  border-radius: var(--radius-full);
+}

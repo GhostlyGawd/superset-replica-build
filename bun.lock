@@ -144,6 +144,26 @@
         "vite": "^8.0.16",
       },
     },
+    "apps/site": {
+      "name": "@swarm/site",
+      "version": "0.1.0",
+      "dependencies": {
+        "@swarm/db": "workspace:*",
+        "@swarm/ui": "workspace:*",
+        "lucide-react": "^1.18.0",
+        "react": "^19.2.7",
+        "react-dom": "^19.2.7",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.17",
+        "@types/react-dom": "^19.2.3",
+        "@vitejs/plugin-react": "^6.0.2",
+        "autoprefixer": "^10.5.0",
+        "postcss": "^8.5.15",
+        "tailwindcss": "^3.4.17",
+        "vite": "^8.0.16",
+      },
+    },
     "packages/agent-adapters": {
       "name": "@swarm/agent-adapters",
       "version": "0.1.0",
@@ -716,6 +736,8 @@
     "@swarm/shared": ["@swarm/shared@workspace:packages/shared"],
 
     "@swarm/showcase": ["@swarm/showcase@workspace:apps/showcase"],
+
+    "@swarm/site": ["@swarm/site@workspace:apps/site"],
 
     "@swarm/sync": ["@swarm/sync@workspace:packages/sync"],
 

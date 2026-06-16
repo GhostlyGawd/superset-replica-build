@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0e1211" />
+
+    <title>Grove — mission control for a swarm of CLI coding agents</title>
+    <meta
+      name="description"
+      content="Run Claude Code, Codex, Cursor — any CLI agent — in parallel, each pinned to its own git worktree so they never collide. Watch, review, harvest. Self-hosted, loopback by default. grove up."
+    />
+
+    <!-- Open Graph: the social preview IS a screenshot of the console, not a slogan over a void. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Grove — mission control for a swarm of CLI coding agents" />
+    <meta
+      property="og:description"
+      content="Run Claude Code, Codex, Cursor — any CLI agent — in parallel, each pinned to its own git worktree so they never collide. Watch, review, harvest. Self-hosted, loopback by default. grove up."
+    />
+    <meta property="og:image" content="/og-cockpit.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The Grove cockpit at rest: dark substrate, pinned status rail with the swarm tally, the worktree rail, a slice of the agent roster, and the trunk-fork mark top-left." />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Grove — mission control for a swarm of CLI coding agents" />
+    <meta
+      name="twitter:description"
+      content="Run a swarm of coding agents. Keep one calm surface. Self-hosted, loopback by default. grove up."
+    />
+    <meta name="twitter:image" content="/og-cockpit.png" />
+
+    <!-- Fonts preloaded: tabular figures must not shift layout (DESIGN.md §type). -->
+    <link
+      rel="preload"
+      href="/fonts/ibm-plex-mono-latin-400-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/ibm-plex-sans-latin-400-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/ibm-plex-sans-latin-500-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+  </head>
+  <body>
+    <div id="root"><!--app-html--></div>
+    <script type="module" src="/src/entry-client.tsx"></script>
+  </body>
+</html>
