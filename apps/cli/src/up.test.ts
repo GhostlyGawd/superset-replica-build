@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,6 +59,45 @@ describe("@swarm/cli — dep-verify (real execFile, cross-platform, no mocks)", 
     // The missing-binary probe walks PATH and can run past bun's 5s default body
     // timeout under heavy parallel `turbo` load — give it headroom. Assertions unchanged.
   }, 60_000);
+
+  // Regression: a Windows `.cmd` PATH shim (how `npm i -g <tool>` — one of our own bun
+  // install hints — installs a CLI) cannot be launched by CreateProcess, so a shell-free
+  // execFile throws ENOENT even though the tool IS on PATH. verifyTool must still detect
+  // it via the win32 shell fallback. (win32 only; `.cmd` shims don't exist on POSIX,
+  // where the shell-free probe already resolves the binary.)
+  const winTest = process.platform === "win32" ? test : test.skip;
+  winTest(
+    "a Windows .cmd PATH shim (npm-style) is detected, not reported missing",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "grove-shim-"));
+      writeFileSync(join(dir, "grovefaketool.cmd"), "@echo off\r\necho 9.9.9\r\n");
+      const priorPath = process.env.PATH;
+      process.env.PATH = `${dir};${priorPath ?? ""}`;
+      try {
+        const check = await verifyTool({
+          bin: "grovefaketool",
+          label: "FakeShim",
+          required: true,
+          versionArgs: ["--version"],
+          installHint: "n/a",
+        });
+        expect(check.found).toBe(true);
+        expect(check.ok).toBe(true);
+        expect(check.version).toBe("9.9.9");
+      } finally {
+        // Restore PATH the same way afterAll restores GROVE_HOME: deleting (not
+        // assigning `undefined`, which Node stringifies to the literal "undefined")
+        // if it was originally unset.
+        if (priorPath === undefined) {
+          Reflect.deleteProperty(process.env, "PATH");
+        } else {
+          process.env.PATH = priorPath;
+        }
+        await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      }
+    },
+    60_000,
+  );
 
   test("verifyDeps fails on a present-but-too-old required tool, but never on an optional miss", async () => {
     const tooNew: ToolSpec = {
