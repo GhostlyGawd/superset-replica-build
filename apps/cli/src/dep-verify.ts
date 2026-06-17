@@ -1,17 +1,24 @@
-import { execFile } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 /**
  * Cross-platform dependency preflight for `grove up` (ADR-0015 / ADR-0004). Each
- * tool is probed by EXECUTING its `--version` directly via `child_process.execFile`
- * — no shell, no `where`/`which` parsing — and treating `ENOENT` (not on PATH) the
- * same as a non-zero exit. This works identically on PowerShell/cmd and POSIX
- * because it never assumes a shell: `CreateProcess`/`execvp` resolve the binary off
- * PATH on every OS (the required tools are real `.exe`s on Windows, not `.cmd`
- * shims). No `.sh`, no platform branch.
+ * tool is probed by EXECUTING its `--version` and parsing the output, treating
+ * `ENOENT` (not on PATH) the same as a non-zero exit.
+ *
+ * The probe runs SHELL-FREE first (`child_process.execFile`): `CreateProcess` /
+ * `execvp` resolve a real binary off PATH on every OS. But on Windows an npm-global
+ * CLI — `npm i -g bun`, which is one of our OWN install hints — lands as a `.cmd`
+ * shim, and `CreateProcess` cannot launch a `.cmd`/`.bat`, so a shell-free probe
+ * throws `ENOENT` even though the tool is on PATH (the false negative this guards).
+ * ONLY in that case (win32 + `ENOENT`) we retry through the shell so PATHEXT resolves
+ * the shim; if that retry also fails the tool is genuinely absent and we surface the
+ * original `ENOENT`. `bin`/`versionArgs` are fixed `ToolSpec` literals (never user
+ * input), so the shell retry adds no injection surface.
  */
 
 const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 
 /** Per-probe timeout so a wedged binary can never hang the bootstrap. */
 const PROBE_TIMEOUT_MS = 5000;
@@ -100,16 +107,40 @@ function parseVersion(text: string): string | null {
 }
 
 /**
+ * Execute `<bin> <versionArgs>` and return its captured stdio. Runs shell-free first
+ * (fast, injection-free); on Windows it retries through the shell on `ENOENT` so a
+ * `.cmd`/`.bat` PATH shim (e.g. an `npm i -g`-installed tool) resolves via PATHEXT.
+ * If the shell retry also fails, the ORIGINAL `ENOENT` is rethrown so the report
+ * still reads "not found on PATH" rather than a shell exit code.
+ */
+async function runProbe(spec: ToolSpec): Promise<{ stdout: string; stderr: string }> {
+  const opts = { timeout: PROBE_TIMEOUT_MS, windowsHide: true } as const;
+  try {
+    return await execFileAsync(spec.bin, [...spec.versionArgs], opts);
+  } catch (err) {
+    if (process.platform === "win32" && (err as NodeJS.ErrnoException).code === "ENOENT") {
+      try {
+        // `exec` runs a command STRING through the shell so PATHEXT resolves the
+        // `.cmd`/`.bat` shim — NOT execFile's (args[] + shell:true), which Node
+        // deprecates (DEP0190). bin + versionArgs are fixed literals, so the join
+        // carries no injection surface.
+        return await execAsync([spec.bin, ...spec.versionArgs].join(" "), opts);
+      } catch {
+        throw err; // shim retry failed too → genuinely absent; keep the ENOENT signal
+      }
+    }
+    throw err;
+  }
+}
+
+/**
  * Probe ONE tool by executing `<bin> <versionArgs>`. Never throws: a missing binary
  * (`ENOENT`), a non-zero exit, or a timeout all resolve to `found: false`. A present
  * tool below its `minMajor` resolves to `found: true, ok: false`.
  */
 export async function verifyTool(spec: ToolSpec): Promise<ToolCheck> {
   try {
-    const { stdout, stderr } = await execFileAsync(spec.bin, [...spec.versionArgs], {
-      timeout: PROBE_TIMEOUT_MS,
-      windowsHide: true,
-    });
+    const { stdout, stderr } = await runProbe(spec);
     // Some tools print their version to stderr; consider both streams.
     const version = parseVersion(`${stdout}\n${stderr}`);
     const major = version !== null ? Number.parseInt(version, 10) : null;

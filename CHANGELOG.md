@@ -6,6 +6,13 @@ this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-16
+
+Patch — Windows onboarding fix.
+
+### Fixed
+- **`grove up` preflight now detects Bun (or any required tool) installed as a Windows `.cmd` shim.** The cross-platform dependency preflight probes each tool shell-free via `execFile <bin> --version` (ADR-0015). On Windows, a CLI installed with `npm i -g <tool>` — including `npm i -g bun`, *one of our own install hints* — lands as a `.cmd` shim that `CreateProcess` cannot launch, so the probe threw `ENOENT` and reported "Bun — not found on PATH" even though `bun --version` worked in the same shell. `verifyTool` now retries through the shell on win32 `ENOENT` (via `exec` with a command string — no `execFile` `args[]`+`shell:true`, so no DEP0190), letting PATHEXT resolve the shim; a genuinely-absent tool still surfaces the original `ENOENT` ("not found on PATH"). A new win32 regression test creates a real `.cmd` PATH shim and asserts detection. CI installs Bun natively, so the 3-OS matrix never exercised the shim path — this closes that gap. No behavior change on macOS/Linux, where the shell-free probe already resolves the binary.
+
 ## [1.0.0] - 2026-06-16
 
 Phase 6 — Hardening & launch. **The 1.0 release.** All 14 parity items (P01–P14) ship across v0.1.0–v1.0.0. **Green on Windows + macOS + Linux** — CI run 27626509741: the `verify` matrix (lint/typecheck/build/test) + the real-host desktop & mobile `e2e` jobs + the 3-OS `package` job, all green (Windows included). Independent Phase-6 Critic **ALL-PASS** (`evidence/phase-6/review.md`), grading §6.1 DoD / §6.2 evidence / §6.3 anti-slop / §6.4 quality from the artifacts.
